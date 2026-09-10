@@ -6,43 +6,82 @@ const params=new URLSearchParams(location.search),observer=params.has('observe')
 const session=params.get('session')||crypto.randomUUID();
 if(!params.has('session')){params.set('session',session);history.replaceState(null,'',`?${params}`);}
 const channel=new BroadcastChannel(`longsword-${session}`),game=observer?null:new Game();
+const controlGroups=new Map();
+let lastUnitClick=null;
 let state=game?.snapshot(),selected=new Set(),view=observer?1:0,attackMode=false,drag=null,marker=null,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer;
 const renderer=new Renderer($('game'),$('minimap'));renderer.resize();if(observer)renderer.camera={x:W/2,y:H/2,zoom:Math.max(5,Math.min(renderer.width/W,renderer.height/H)*.88)};$('perspective').value=view;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),2600);}
-function setAttack(on){attackMode=on;$('attack').classList.toggle('active',on);$('game').style.cursor=on?'crosshair':'default';$('mode-hint').textContent=observer?'观察窗口 · 滚轮缩放 · 中键拖动':on?'攻击移动：左键指定位置 · Esc 取消':'左键选择 · 右键移动';}
+function setAttack(on){attackMode=on;$('game').style.cursor=on?'crosshair':'default';$('mode-hint').textContent=observer?'观察窗口 · 滚轮缩放 · 中键拖动':on?'攻击移动：左键指定位置 · Esc 取消':'左键选择 · 右键移动';}
 function syncView(){view=Number($('perspective').value);$('view-name').textContent=['玩家视角','全局视角','BOT 视角'][view];}
 $('perspective').addEventListener('input',syncView);syncView();
 function sendSnapshot(){if(game)channel.postMessage({type:'state',state:game.snapshot(),paused,speed});}
 channel.onmessage=event=>{const msg=event.data;if(observer&&msg.type==='state'){state=msg.state;paused=msg.paused;speed=msg.speed;lastReceived=performance.now();$('connection').hidden=true;}else if(!observer&&msg.type==='hello')sendSnapshot();};
-if(observer){document.title='长剑 · 独立观察';$('session-label').textContent='独立观察 · 共享战局';$('connection').hidden=false;for(const id of ['pause','speed','restart','again','attack','stop','train-shield','train-archer','observer'])$(id).disabled=true;channel.postMessage({type:'hello'});setAttack(false);}
+if(observer){document.title='长剑 · 独立观察';$('session-label').textContent='独立观察 · 共享战局';$('connection').hidden=false;for(const id of ['pause','speed','restart','again','train-shield','train-archer','observer'])$(id).disabled=true;channel.postMessage({type:'hello'});setAttack(false);}
 $('observer').onclick=()=>{const url=new URL(location.href);url.searchParams.set('observe','1');const popup=window.open(url.href,`longsword-observer-${session}`,'popup,width=1280,height=850');let link=document.getElementById('observer-link');if(!link){link=document.createElement('a');link.id='observer-link';link.target='_blank';link.textContent='观察页备用链接（可复制到新窗口）';$('observer').after(link);}link.href=url.href;if(!popup)toast('浏览器未打开弹窗，请使用下方观察页链接');};
-$('pause').onclick=()=>{paused=!paused;sendSnapshot();updateHud();};
+function togglePause(){if(observer)return;paused=!paused;acc=0;last=performance.now();sendSnapshot();updateHud();}
+$('pause').onclick=togglePause;
 $('speed').onclick=()=>{speed=speed===1?2:1;sendSnapshot();updateHud();};
-function restart(){if(observer)return;Object.assign(game,new Game());selected.clear();paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera={x:25,y:32,zoom:13};setAttack(false);sendSnapshot();updateHud();toast('新行动开始');}
+function restart(){if(observer)return;Object.assign(game,new Game());selected.clear();controlGroups.clear();lastUnitClick=null;paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera={x:25,y:32,zoom:13};setAttack(false);sendSnapshot();updateHud();toast('新行动开始');}
 $('restart').onclick=restart;$('again').onclick=restart;
-$('attack').onclick=()=>{if(!selected.size){toast('请先选择部队');return;}setAttack(!attackMode);};
 function stop(){if(observer)return;game.command([...selected],'stop');setAttack(false);toast(selected.size?'已停止移动并停火':'请先选择部队');}
-$('stop').onclick=stop;
 for(const type of ['shield','archer'])$('train-'+type).onclick=()=>{const error=game.train(type);toast(error||`${STATS[type].name}已加入训练队列`);updateHud();};
 function local(event){const rect=$('game').getBoundingClientRect();return {x:event.clientX-rect.left,y:event.clientY-rect.top};}
 function visibleToView(e){const team=view===2?1:0;return view===1||e.team===team||state.visible[team][Math.floor(e.y)*W+Math.floor(e.x)];}
-function issue(p,attack){if(!selected.size){toast('请先选择部队');setAttack(false);return;}const world=renderer.world(p.x,p.y);if(world.x<0||world.y<0||world.x>=W||world.y>=H){toast('请在地图范围内下达指令');return;}const target=game.entities().find(e=>e.team===1&&game.canSee(0,e)&&Math.hypot(e.x-world.x,e.y-world.y)<(e.building?2:1));game.command([...selected],attack?'attack':target?'attack':'move',world,target?.id);marker={...world,attack:attack||!!target,until:performance.now()+1000};setAttack(false);}
+function issue(p,attack){lastUnitClick=null;if(!selected.size){toast('请先选择部队');setAttack(false);return;}const world=renderer.world(p.x,p.y);if(world.x<0||world.y<0||world.x>=W||world.y>=H){toast('请在地图范围内下达指令');return;}const target=game.entities().find(e=>e.team===1&&game.canSee(0,e)&&Math.hypot(e.x-world.x,e.y-world.y)<(e.building?2:1));game.command([...selected],attack?'attack':target?'attack':'move',world,target?.id);marker={...world,attack:attack||!!target,until:performance.now()+1000};setAttack(false);}
 const canvas=$('game');
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('pointerdown',e=>{if(!state)return;const p=local(e);if(e.button===1){e.preventDefault();drag={kind:'pan',sx:p.x,sy:p.y,x:p.x,y:p.y,cx:renderer.camera.x,cy:renderer.camera.y};canvas.setPointerCapture(e.pointerId);return;}if(observer)return;if(e.button===2){e.preventDefault();issue(p,false);return;}if(e.button===0){if(attackMode){issue(p,true);return;}drag={kind:'select',sx:p.x,sy:p.y,x:p.x,y:p.y,shift:e.shiftKey};canvas.setPointerCapture(e.pointerId);}});
 canvas.addEventListener('pointermove',e=>{if(!drag)return;const p=local(e);drag.x=p.x;drag.y=p.y;if(drag.kind==='pan'){renderer.camera.x=drag.cx-(p.x-drag.sx)/renderer.camera.zoom;renderer.camera.y=drag.cy-(p.y-drag.sy)/renderer.camera.zoom;renderer.clamp();}});
 canvas.addEventListener('pointerup',e=>{if(!drag)return;if(drag.kind==='select'){
   if(!drag.shift)selected.clear();const click=Math.hypot(drag.x-drag.sx,drag.y-drag.sy)<5;
-  const choices=state.units.filter(u=>u.team===0&&visibleToView(u));
-  if(click){const p=renderer.world(drag.x,drag.y);const u=choices.sort((a,b)=>Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y))[0];if(u&&Math.hypot(u.x-p.x,u.y-p.y)<1){if(drag.shift&&selected.has(u.id))selected.delete(u.id);else selected.add(u.id);}}
-  else for(const u of choices){const p=renderer.screen(u.x,u.y);if(p.x>=Math.min(drag.sx,drag.x)&&p.x<=Math.max(drag.sx,drag.x)&&p.y>=Math.min(drag.sy,drag.y)&&p.y<=Math.max(drag.sy,drag.y))selected.add(u.id);}
+  const choices=state.units.filter(u=>u.team===0&&u.hp>0&&visibleToView(u));
+  if(click){
+    const p=renderer.world(drag.x,drag.y);
+    const u=choices.sort((a,b)=>Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y))[0];
+    if(u&&Math.hypot(u.x-p.x,u.y-p.y)<1){
+      const now=performance.now();
+      if(lastUnitClick?.id===u.id&&now-lastUnitClick.time<350&&Math.hypot(drag.x-lastUnitClick.x,drag.y-lastUnitClick.y)<5){
+        selected=new Set(choices.filter(other=>{const s=renderer.screen(other.x,other.y);return other.type===u.type&&s.x>=0&&s.x<renderer.width&&s.y>=0&&s.y<renderer.height;}).map(other=>other.id));
+        lastUnitClick=null;toast(`已选择画面内 ${selected.size} 名${STATS[u.type].name}`);
+      }else{
+        if(drag.shift&&selected.has(u.id))selected.delete(u.id);else selected.add(u.id);
+        lastUnitClick={id:u.id,time:now,x:drag.x,y:drag.y};
+      }
+    }else lastUnitClick=null;
+  }else{
+    lastUnitClick=null;
+    for(const u of choices){const p=renderer.screen(u.x,u.y);if(p.x>=Math.min(drag.sx,drag.x)&&p.x<=Math.max(drag.sx,drag.x)&&p.y>=Math.min(drag.sy,drag.y)&&p.y<=Math.max(drag.sy,drag.y))selected.add(u.id);}
+  }
   updateHud();
 }drag=null;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);});
 canvas.addEventListener('pointercancel',()=>drag=null);
 canvas.addEventListener('wheel',e=>{e.preventDefault();const p=local(e);renderer.zoomAt(p.x,p.y,Math.exp(-e.deltaY*.001));},{passive:false});
 $('minimap').addEventListener('pointerdown',e=>{const r=$('minimap').getBoundingClientRect();renderer.camera.x=(e.clientX-r.left)/r.width*W;renderer.camera.y=(e.clientY-r.top)/r.height*H;renderer.clamp();});
-window.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;const key=e.key.toLowerCase();if(key===' '){e.preventDefault();renderer.camera.x=25;renderer.camera.y=32;}if(key==='escape'){setAttack(false);drag=null;}if(observer||e.repeat)return;if(key==='a'){e.preventDefault();if(selected.size)setAttack(true);else toast('请先选择部队');}if(key==='s'){e.preventDefault();stop();}});
-window.addEventListener('blur',()=>{drag=null;});
+window.addEventListener('keydown',e=>{
+  if(e.target.matches('input, textarea, select')||e.target.isContentEditable)return;
+  const key=e.key.toLowerCase();
+  if(/^[0-9]$/.test(key)&&!e.altKey&&!e.metaKey&&!e.shiftKey){
+    e.preventDefault();
+    if(observer||e.repeat)return;
+    lastUnitClick=null;
+    const living=new Set(game.units.filter(u=>u.team===0&&u.hp>0).map(u=>u.id));
+    if(e.ctrlKey){
+      const ids=[...selected].filter(id=>living.has(id));
+      if(ids.length){controlGroups.set(key,ids);toast(`编队 ${key} 已保存 · ${ids.length} 人`);}else toast('请先选择部队再编队');
+    }else{
+      const ids=(controlGroups.get(key)||[]).filter(id=>living.has(id));
+      controlGroups.set(key,ids);
+      if(ids.length){selected=new Set(ids);setAttack(false);toast(`已选择编队 ${key} · ${ids.length} 人`);updateHud();}else toast(`编队 ${key} 没有存活单位`);
+    }
+    return;
+  }
+  if(key===' '){e.preventDefault();if(!e.repeat)togglePause();return;}
+  if(key==='escape'){setAttack(false);drag=null;}
+  if(observer||e.repeat)return;
+  if(key==='a'){e.preventDefault();if(selected.size)setAttack(true);else toast('请先选择部队');}
+  if(key==='s'){e.preventDefault();stop();}
+});
+window.addEventListener('blur',()=>{drag=null;lastUnitClick=null;});
 function updateHud(){
   if(!state)return;if(game)state=game.snapshot();
   for(const id of selected)if(!state.units.some(u=>u.id===id))selected.delete(id);

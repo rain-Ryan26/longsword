@@ -2,6 +2,13 @@
 setlocal
 cd /d "%~dp0"
 
-set "SERVER=%~dp0server.mjs"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$server = [regex]::Escape($env:SERVER); $processes = Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | Where-Object { $_.CommandLine -match $server }; if ($processes) { $processes | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Host ('已关闭游戏服务器（PID ' + $_.ProcessId + '）。') } } else { Write-Host '未发现正在运行的本游戏服务器。' }"
+powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand JAB0AGEAcgBnAGUAdAAgAD0AIABbAHIAZQBnAGUAeABdADoAOgBFAHMAYwBhAHAAZQAoACgASgBvAGkAbgAtAFAAYQB0AGgAIAAkAHAAdwBkACAAJwBzAGUAcgB2AGUAcgAuAG0AagBzACcAKQApADsAIAAkAHAAcgBvAGMAZQBzAHMAIAA9ACAARwBlAHQALQBDAGkAbQBJAG4AcwB0AGEAbgBjAGUAIABXAGkAbgAzADIAXwBQAHIAbwBjAGUAcwBzACAALQBGAGkAbAB0AGUAcgAgACIATgBhAG0AZQAgAD0AIAAnAG4AbwBkAGUALgBlAHgAZQAnACIAIAB8ACAAVwBoAGUAcgBlAC0ATwBiAGoAZQBjAHQAIAB7ACAAJABfAC4AQwBvAG0AbQBhAG4AZABMAGkAbgBlACAALQBtAGEAdABjAGgAIAAkAHQAYQByAGcAZQB0ACAAfQAgAHwAIABTAGUAbABlAGMAdAAtAE8AYgBqAGUAYwB0ACAALQBGAGkAcgBzAHQAIAAxADsAIABpAGYAIAAoACQAbgB1AGwAbAAgAC0AZQBxACAAJABwAHIAbwBjAGUAcwBzACkAIAB7ACAAZQB4AGkAdAAgADEAIAB9ADsAIABTAHQAbwBwAC0AUAByAG8AYwBlAHMAcwAgAC0ASQBkACAAJABwAHIAbwBjAGUAcwBzAC4AUAByAG8AYwBlAHMAcwBJAGQAIAAtAEYAbwByAGMAZQA=
+if not errorlevel 1 goto closed
+echo No running game server was found.
+goto end
+
+:closed
+echo Game server stopped.
+
+:end
 pause
