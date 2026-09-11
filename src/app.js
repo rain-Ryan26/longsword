@@ -1,11 +1,15 @@
 import {Game} from './core.js';
 import {Renderer} from './renderer.js';
+import {SnapshotHost,SnapshotReceiver} from './sync.js';
 import {STATS,W,H} from './data.js';
 const $=id=>document.getElementById(id);
 const params=new URLSearchParams(location.search),observer=params.has('observe');
 const session=params.get('session')||crypto.randomUUID();
 if(!params.has('session')){params.set('session',session);history.replaceState(null,'',`?${params}`);}
 const channel=new BroadcastChannel(`longsword-${session}`),game=observer?null:new Game();
+const host=observer?null:new SnapshotHost(message=>channel.postMessage(message),crypto.randomUUID());
+const receiver=observer?new SnapshotReceiver(crypto.randomUUID()):null;
+let lastHello=-Infinity;
 const controlGroups=new Map();
 let lastUnitClick=null,lastRightClick=null;
 let state=game?.snapshot(),selected=new Set(),view=observer?1:0,attackMode=false,drag=null,marker=null,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer;
@@ -14,9 +18,17 @@ function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible
 function setAttack(on){attackMode=on;$('game').style.cursor=on?'crosshair':'default';$('mode-hint').textContent=observer?'观察窗口 · 滚轮缩放 · 中键拖动':on?'攻击移动：左键指定位置 · Esc 取消':'左键选择 · 右键移动';}
 function syncView(){lastRightClick=null;view=Number($('perspective').value);$('view-name').textContent=['玩家视角','全局视角','BOT 视角'][view];}
 $('perspective').addEventListener('input',syncView);syncView();
-function sendSnapshot(){if(game)channel.postMessage({type:'state',state:game.snapshot(),paused,speed});}
-channel.onmessage=event=>{const msg=event.data;if(observer&&msg.type==='state'){state=msg.state;paused=msg.paused;speed=msg.speed;lastReceived=performance.now();$('connection').hidden=true;}else if(!observer&&msg.type==='hello')sendSnapshot();};
-if(observer){document.title='长剑 · 独立观察';$('session-label').textContent='独立观察 · 共享战局';$('connection').hidden=false;for(const id of ['pause','speed','restart','again','train-shield','train-archer','observer'])$(id).disabled=true;channel.postMessage({type:'hello'});setAttack(false);}
+function sendSnapshot(){if(game)host.publish(game.snapshot(),paused,speed,performance.now());}
+channel.onmessage=event=>{
+  const msg=event.data;
+  if(observer&&msg.type==='state'&&msg.to===receiver.id){
+    if(!receiver.receive(msg)){channel.postMessage(receiver.message());return;}
+    state=receiver.state;paused=msg.paused;speed=msg.speed;lastReceived=performance.now();$('connection').hidden=true;
+    channel.postMessage(receiver.message('ack'));
+  }else if(!observer&&host.receive(msg,performance.now()))sendSnapshot();
+};
+window.addEventListener('pagehide',()=>{if(receiver)channel.postMessage(receiver.message('bye'));});
+if(observer){document.title='长剑 · 独立观察';$('session-label').textContent='独立观察 · 共享战局';$('connection').hidden=false;for(const id of ['pause','speed','restart','again','train-shield','train-archer','observer'])$(id).disabled=true;channel.postMessage(receiver.message());setAttack(false);}
 $('observer').onclick=()=>{const url=new URL(location.href);url.searchParams.set('observe','1');const popup=window.open(url.href,`longsword-observer-${session}`,'popup,width=1280,height=850');let link=document.getElementById('observer-link');if(!link){link=document.createElement('a');link.id='observer-link';link.target='_blank';link.textContent='观察页备用链接（可复制到新窗口）';$('observer').after(link);}link.href=url.href;if(!popup)toast('浏览器未打开弹窗，请使用下方观察页链接');};
 function togglePause(){if(observer)return;paused=!paused;acc=0;last=performance.now();sendSnapshot();updateHud();}
 $('pause').onclick=togglePause;
@@ -104,7 +116,7 @@ function updateHud(){
   $('zoom-label').textContent=Math.round(renderer.camera.zoom/13*100)+'%';
 }
 // Simulation uses a timer so an observer can remain foreground while the host is hidden.
-setInterval(()=>{const now=performance.now(),elapsed=Math.min((now-last)/1000,1);last=now;if(game){if(!paused&&!game.result){acc+=elapsed*speed;let steps=0;while(acc>=.05&&steps++<40){game.step(.05);acc-=.05;}}else acc=0;state=game.snapshot();if(now-lastSnapshot>=100){sendSnapshot();lastSnapshot=now;}}else if(now-lastReceived>3000){$('connection').hidden=false;$('connection').textContent=lastReceived?'主窗口未响应，请保持主窗口打开。':'等待主窗口的战局数据…';}if(now-lastHud>=150){updateHud();lastHud=now;}},50);
+setInterval(()=>{const now=performance.now();if(observer&&now-lastHello>=1000){channel.postMessage(receiver.message());lastHello=now;}const elapsed=Math.min((now-last)/1000,1);last=now;if(game){if(!paused&&!game.result){acc+=elapsed*speed;let steps=0;while(acc>=.05&&steps++<40){game.step(.05);acc-=.05;}}else acc=0;state=game.snapshot();if(now-lastSnapshot>=100){sendSnapshot();lastSnapshot=now;}}else if(now-lastReceived>3000){$('connection').hidden=false;$('connection').textContent=lastReceived?'主窗口未响应，请保持主窗口打开。':'等待主窗口的战局数据…';}if(now-lastHud>=150){updateHud();lastHud=now;}},50);
 const frameInterval=1000/120;
 let lastFrame=null;
 function frame(now){

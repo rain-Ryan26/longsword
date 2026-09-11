@@ -3,7 +3,7 @@ import {findPath,nearestFree,walkable,index} from './pathfinding.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 export class Game{
   constructor(){
-    this.map=createMap();this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.time=0;this.nextId=1;this.food=180;this.ore=120;this.queue=[];this.result=null;this.visionTimer=0;
+    this.map=createMap();this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.time=0;this.nextId=1;this.food=180;this.ore=120;this.queue=[];this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
     this.visible=[new Array(W*H).fill(0),new Array(W*H).fill(0)];this.explored=[new Array(W*H).fill(0),new Array(W*H).fill(0)];
     this.addBuilding('base',0,12,32);
     this.map.camps.forEach((p,i)=>{this.addBuilding('camp',1,p.x,p.y);for(let n=0;n<7;n++){const u=this.addUnit(n<4?'shield':'archer',1,p.x-6+(n%3)*2,p.y-4+Math.floor(n/3)*3);u.home={x:u.x,y:u.y};u.role='guard';u.camp=i;}});
@@ -24,13 +24,14 @@ export class Game{
     return findPath(this.map,this.buildings,u,end,avoid);
   }
   updateVision(){
+    this.visionVersion++;
     for(const v of this.visible)v.fill(0);
     const paint=(team,x,y,r)=>{for(let yy=Math.max(0,Math.floor(y-r));yy<=Math.min(H-1,Math.ceil(y+r));yy++)for(let xx=Math.max(0,Math.floor(x-r));xx<=Math.min(W-1,Math.ceil(x+r));xx++)if((xx+.5-x)**2+(yy+.5-y)**2<=r*r)this.visible[team][yy*W+xx]=1;};
     for(const e of this.entities()){paint(e.team,e.x,e.y,this.detectionRange(e));if(e.revealUntil>this.time)paint(1-e.team,e.x,e.y,2);}
     for(let t=0;t<2;t++)for(let i=0;i<W*H;i++)if(this.visible[t][i])this.explored[t][i]=1;
   }
   command(ids,kind,point,targetId=null,append=false,allowMountains=false){
-    if(this.result)return;
+    if(this.result)return;this.revision++;
     const selected=this.units.filter(u=>ids.includes(u.id)&&u.team===0&&u.hp>0),cols=Math.ceil(Math.sqrt(selected.length));
     selected.forEach((u,i)=>{
       if(!append)u.allowMountains=allowMountains&&kind==='move';
@@ -51,10 +52,10 @@ export class Game{
     if(!['shield','archer'].includes(type)||this.result)return '当前不能训练';
     const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=40)return '人口已达上限';
     if(this.queue.length>=8)return '训练队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足，基地正在持续生产';
-    this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:3});return null;
+    this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:3});this.revision++;return null;
   }
   step(dt){
-    if(this.result)return;this.time+=dt;this.food+=3*dt;this.ore+=2*dt;
+    if(this.result)return;this.revision++;this.time+=dt;this.food+=3*dt;this.ore+=2*dt;
     if(this.queue.length){this.queue[0].remaining-=dt;if(this.queue[0].remaining<=0){const q=this.queue.shift();const n=this.units.filter(u=>u.team===0).length;this.addUnit(q.type,0,15+n%3,35+Math.floor(n%9/3));}}
     this.visionTimer-=dt;if(this.visionTimer<=0){this.updateVision();this.visionTimer=.15;}
     const entities=this.entities();
@@ -110,5 +111,5 @@ export class Game{
       for(const [u,sign]of [[a,1],[b,-1]]){const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
     }
   }
-  snapshot(){return {map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}
+  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}
 }
