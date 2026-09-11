@@ -181,11 +181,13 @@ export class Game{
     b.hp=0;this.releaseBuilders(b);if(b.primary){this.queue=[];this.result='defeat';}
     this.revision++;this.updateVision();return null;
   }
+  // 人口上限：每个己方已完工基地提供 STATS 中标注的人口数（基地为 40），可叠加
+  popCap(){return this.buildings.reduce((n,b)=>n+(b.team===0&&b.hp>0&&!b.constructionPending?STATS[b.type].pop||0:0),0);}
   train(type,baseId=null){
     if(!['shield','archer','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
     const base=this.buildings.find(b=>b.type==='base'&&b.team===0&&b.hp>0&&!b.constructionPending&&(baseId===null||b.id===baseId));
     if(!base)return '请选择已完工的基地';
-    const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=40)return '人口已达上限';
+    const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=this.popCap())return '人口已达上限';
     if(this.queue.length>=8)return '训练队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足，基地正在持续生产';
     this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:s.trainTime||3,baseId:base.id});this.revision++;return null;
   }
@@ -360,5 +362,5 @@ export class Game{
       for(const [u,sign]of [[a,1],[b,-1]]){if(STATS[u.type].air)continue;const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
     }
   }
-  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}
+  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,popCap:this.popCap(),queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}
 }

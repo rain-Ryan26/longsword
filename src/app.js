@@ -147,7 +147,7 @@ window.addEventListener('blur',()=>{drag=null;lastUnitClick=null;lastRightClick=
 function updateHud(){
   if(!state)return;if(game)state=game.snapshot();
   for(const id of selected)if(!state.units.some(u=>u.id===id))selected.delete(id);
-  $('food').textContent=Math.floor(state.food);$('ore').textContent=Math.floor(state.ore);$('population').textContent=`${state.units.filter(u=>u.team===0).length} / 40`;
+  $('food').textContent=Math.floor(state.food);$('ore').textContent=Math.floor(state.ore);$('population').textContent=`${state.units.filter(u=>u.team===0).length} / ${state.popCap}`;
   const seconds=Math.floor(state.time);$('clock').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
   $('pause').textContent=paused?'继续':'暂停';$('pause').classList.toggle('active',paused);$('speed').textContent=speed+'×';$('objective').textContent=`敌方营地 ${state.buildings.filter(b=>b.team===1&&b.hp>0).length} / 2`;
   const units=state.units.filter(u=>selected.has(u.id)),counts={};for(const u of units)counts[STATS[u.type].name]=(counts[STATS[u.type].name]||0)+1;
