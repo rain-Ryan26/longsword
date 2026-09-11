@@ -12,16 +12,33 @@ export class Game{
     this.updateVision();
   }
   addBuilding(type,team,x,y){const b={id:this.nextId++,type,team,x,y,hp:STATS[type].hp,maxHp:STATS[type].hp,building:true,revealUntil:0,cooldown:0};this.buildings.push(b);return b;}
-  addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],waypoints:[],allowMountains:false,goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0};this.units.push(u);return u;}
+  addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],waypoints:[],allowMountains:false,goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0,flying:!!STATS[type].air};if(u.flying&&(u.x<5||u.x>W-5||u.y<5||u.y>H-5))u.facing=Math.atan2(H/2-u.y,W/2-u.x);this.units.push(u);return u;}
   entities(){return [...this.units,...this.buildings].filter(e=>e.hp>0);}
   canSee(team,e){return e.team===team||!!this.visible[team][index(e.x,e.y)];}
-  detectionRange(e){return STATS[e.type].vision*(DETECTION_MULTIPLIERS[this.map.terrain[index(e.x,e.y)]]??1);}
-  movementSpeed(u){return STATS[u.type].speed*(MOVEMENT_MULTIPLIERS[this.map.terrain[index(u.x,u.y)]]??1);}
-  avoidsMountains(u){return !u.allowMountains&&this.map.terrain[index(u.x,u.y)]!==1;}
+  detectionRange(e){const base=this.isFlying(e)||!('visionGround' in STATS[e.type])?STATS[e.type].vision:STATS[e.type].visionGround;if(this.isFlying(e))return base;return base*(DETECTION_MULTIPLIERS[this.map.terrain[index(e.x,e.y)]]??1);}
+  movementSpeed(u){if(STATS[u.type].air)return this.isFlying(u)?STATS[u.type].speed:0;return STATS[u.type].speed*(MOVEMENT_MULTIPLIERS[this.map.terrain[index(u.x,u.y)]]??1);}
+  avoidsMountains(u){return !this.isFlying(u)&&!u.allowMountains&&this.map.terrain[index(u.x,u.y)]!==1;}
+  isFlying(u){return !!STATS[u.type].air&&u.flying!==false;}
+  canEngage(u,e){if(STATS[u.type].airOnly)return this.isFlying(u)&&this.isFlying(e);return !this.isFlying(e)||this.isFlying(u)||!!STATS[u.type].antiAir;}
+  toggleFlight(ids,point){
+    if(this.result)return;
+    for(const u of this.units.filter(u=>ids.includes(u.id)&&u.team===0&&u.hp>0&&STATS[u.type].air)){
+      const landing=this.isFlying(u);
+      this.command([u.id],'move',point);
+      if(landing){u.landing=nearestFree(this.map,this.buildings,point.x,point.y);u.goal=u.landing;}
+      else{u.flying=true;u.path=[];u.buildingId=null;u.goal={...point};if(u.x<5||u.x>W-5||u.y<5||u.y>H-5)u.facing=Math.atan2(H/2-u.y,W/2-u.x);}
+    }
+    this.revision++;this.updateVision();
+  }
+  // 对空射程与伤害：弓箭兵、哨塔对空射程 2、伤害减半；空中近战用自身射程和伤害
+  attackRange(u,e){const s=STATS[u.type];return this.isFlying(e)&&s.antiAir?2:s.range+(e.building?(STATS[e.type].halfSize||2)-.5:0);}
+  attackDamage(u,e){const s=STATS[u.type];return this.isFlying(e)&&s.antiAir?s.damage/2:s.damage;}
   pathFor(u,end){
+    if(this.isFlying(u))return [];
     const avoid=this.avoidsMountains(u);
-    if(avoid&&end===u.goal){const p=nearestFree(this.map,this.buildings,end.x,end.y,true);if(p){u.goal=p;end=p;}}
-    return findPath(this.map,this.buildings,u,end,avoid);
+    const buildings=u.leavingId!=null?this.buildings.filter(b=>b.id!==u.leavingId):this.buildings;
+    if(avoid&&end===u.goal){const p=nearestFree(this.map,buildings,end.x,end.y,true);if(p){u.goal=p;end=p;}}
+    return findPath(this.map,buildings,u,end,avoid);
   }
   updateVision(){
     this.visionVersion++;
@@ -34,9 +51,10 @@ export class Game{
     if(this.result)return;this.revision++;
     const selected=this.units.filter(u=>ids.includes(u.id)&&u.team===0&&u.hp>0),cols=Math.ceil(Math.sqrt(selected.length));
     selected.forEach((u,i)=>{
-      u.buildingId=null;
+      if(STATS[u.type].air&&!this.isFlying(u)&&(kind==='move'||kind==='attack')){u.flying=true;if(u.x<5||u.x>W-5||u.y<5||u.y>H-5)u.facing=Math.atan2(H/2-u.y,W/2-u.x);}
+      u.buildingId=null;u.landing=null;u.orbit=null;u.landingEscape=false;
       if(!append)u.allowMountains=allowMountains&&kind==='move';
-      const p=kind==='stop'?null:nearestFree(this.map,this.buildings,point.x+(i%cols-(cols-1)/2)*1.2,point.y+(Math.floor(i/cols)-(Math.ceil(selected.length/cols)-1)/2)*1.2,this.avoidsMountains(u));
+      const p=kind==='stop'?null:this.isFlying(u)?{x:point.x,y:point.y}:nearestFree(this.map,this.buildings,point.x+(i%cols-(cols-1)/2)*1.2,point.y+(Math.floor(i/cols)-(Math.ceil(selected.length/cols)-1)/2)*1.2,this.avoidsMountains(u));
       if(append&&kind==='move'&&u.goal&&p){
         u.waypoints.push(p);u.order='move';u.holdFire=false;u.targetId=null;
         u.path=this.pathFor(u,u.goal);u.repath=1.5;
@@ -45,7 +63,7 @@ export class Game{
       u.waypoints=[];
       u.targetId=null;u.path=[];u.goal=null;u.holdFire=kind==='stop';u.order=kind==='stop'?'hold':kind;u.repath=0;
       if(kind==='stop')return;
-      if(targetId){const target=this.entities().find(e=>e.id===targetId&&e.team!==0&&this.canSee(0,e));if(target)u.targetId=target.id;}
+      if(targetId){const target=this.entities().find(e=>e.id===targetId&&e.team!==0&&this.canSee(0,e));if(target&&this.canEngage(u,target))u.targetId=target.id;}
       if(p){u.goal=p;u.path=this.pathFor(u,p);}
     });
   }
@@ -64,31 +82,56 @@ export class Game{
     const c=buildingCells({type,x:p.x,y:p.y});
     if(this.buildings.some(b=>{if(b.hp<=0)return false;const o=buildingCells(b);return c.x0<=o.x1&&o.x0<=c.x1&&c.y0<=o.y1&&o.y0<=c.y1;}))return {...p,error:'与现有建筑冲突'};
     for(let y=c.y0;y<=c.y1;y++)for(let x=c.x0;x<=c.x1;x++)if(!this.visible[0][index(x,y)])return {...p,error:'请在己方当前视野内建造'};
-    if(this.units.some(u=>u.hp>0&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1))return {...p,error:'请先移开占地内的部队'};
-    return p;
+    const inCells=u=>u.hp>0&&!this.isFlying(u)&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1;
+    if(this.units.some(u=>inCells(u)&&(u.team!==0||STATS[u.type].movable===false||STATS[u.type].air)))return {...p,error:'请先移开占地内的部队'};
+    return {...p,evict:this.units.some(u=>inCells(u))};
   }
   build(ids,type,point){
     if(this.result)return '战局已结束';
     if(!this.units.some(u=>ids.includes(u.id)&&u.team===0&&u.hp>0))return '请先选择部队';
     const p=this.placement(type,point);if(p.error)return p.error;
     const s=STATS[type];if(this.food<s.food||this.ore<s.ore)return '资源不足';
-    const site={...p,hp:s.hp,team:0,type};
-    const assignments=this.builderAssignments(ids,site);
-    if(!assignments.length)return '选中部队无法到达建筑周边';
-    this.food-=s.food;this.ore-=s.ore;const b=this.addBuilding(type,0,p.x,p.y);
-    b.constructionRemaining=s.buildTime||0;b.constructionPending=true;b.activeBuilders=0;
-    this.dispatchBuilders(b,assignments);
+    const site={...p,hp:s.hp,team:0,type},c=buildingCells(site);
+    const evictees=this.units.filter(u=>u.hp>0&&!this.isFlying(u)&&u.team===0&&STATS[u.type].movable!==false&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1);
+    if(!evictees.length){
+      const assignments=this.builderAssignments(ids,site);
+      if(!assignments.length)return '选中部队无法到达建筑周边';
+      this.food-=s.food;this.ore-=s.ore;const b=this.addBuilding(type,0,p.x,p.y);
+      b.constructionRemaining=s.buildTime||0;b.constructionPending=true;b.activeBuilders=0;
+      this.dispatchBuilders(b,assignments);
+    }else{
+      const list=[...this.buildings,site];
+      const dests=evictees.map(u=>{u.allowMountains=true;return {u,target:this.evictTarget(site,u,list)};});
+      if(dests.some(d=>!d.target)){for(const d of dests)d.u.allowMountains=false;return '请先移开占地内的部队';}
+      this.food-=s.food;this.ore-=s.ore;const b=this.addBuilding(type,0,p.x,p.y);
+      b.constructionRemaining=s.buildTime||0;b.constructionPending=true;b.awaitingEviction=true;b.activeBuilders=0;b.builderIds=ids;
+      for(const {u,target} of dests){u.buildingId=null;u.waypoints=[];u.targetId=null;u.holdFire=false;u.leavingId=b.id;u.order='move';u.goal=target;u.path=this.pathFor(u,target);u.repath=1.5;}
+    }
     this.revision++;this.updateVision();return null;
   }
+  evictTarget(b,u,list=this.buildings){
+    const r=STATS[b.type].halfSize||2,dx=u.x-b.x,dy=u.y-b.y,d=Math.hypot(dx,dy);
+    return nearestFree(this.map,list,b.x+(d>1e-6?dx/d:1)*(r+2),b.y+(d>1e-6?dy/d:0)*(r+2),this.avoidsMountains(u));
+  }
+  stillLeaving(u){
+    if(u.leavingId==null)return false;
+    const b=this.buildings.find(b=>b.id===u.leavingId&&b.hp>0);
+    if(!b)return false;
+    const c=buildingCells(b);
+    return Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1;
+  }
   builderAssignments(ids,b){
-    const assigned=this.units.filter(u=>u.hp>0&&u.buildingId===b.id&&u.order==='build');
+    const assigned=this.units.filter(u=>u.hp>0&&!STATS[u.type].air&&u.buildingId===b.id&&u.order==='build');
     const buildings=this.buildings.includes(b)?this.buildings:[...this.buildings,b],spots=[];
     const r=STATS[b.type].halfSize||2,c=buildingCells(b);
-    for(let i=c.x0;i<=c.x1;i++)for(const p of [{x:i+.5,y:b.y-r-.5},{x:i+.5,y:b.y+r+.5},{x:b.x-r-.5,y:i+.5},{x:b.x+r+.5,y:i+.5}]){
+    for(let i=c.x0;i<=c.x1;i++)for(const p of [{x:i+.5,y:b.y-r-.5},{x:i+.5,y:b.y+r+.5}]){
+      if(!spots.some(q=>distance(p,q)<.1)&&!assigned.some(u=>u.goal&&distance(u.goal,p)<.8))spots.push(p);
+    }
+    for(let j=c.y0;j<=c.y1;j++)for(const p of [{x:b.x-r-.5,y:j+.5},{x:b.x+r+.5,y:j+.5}]){
       if(!spots.some(q=>distance(p,q)<.1)&&!assigned.some(u=>u.goal&&distance(u.goal,p)<.8))spots.push(p);
     }
     const result=[];
-    for(const u of this.units.filter(u=>ids.includes(u.id)&&u.team===b.team&&u.hp>0&&!assigned.includes(u)).sort((a,c)=>distance(a,b)-distance(c,b))){
+    for(const u of this.units.filter(u=>ids.includes(u.id)&&u.team===b.team&&u.hp>0&&!STATS[u.type].air&&!assigned.includes(u)).sort((a,c)=>distance(a,b)-distance(c,b))){
       if(result.length+assigned.length>=(STATS[b.type].maxBuilders||4))break;
       for(const p of [...spots].sort((a,c)=>distance(a,u)-distance(c,u))){
         if(!walkable(this.map,buildings,Math.floor(p.x),Math.floor(p.y)))continue;
@@ -111,7 +154,7 @@ export class Game{
     this.dispatchBuilders(b,assignments);this.revision++;return null;
   }
   releaseBuilder(u){u.buildingId=null;u.order='idle';u.goal=null;u.path=[];u.waypoints=[];u.allowMountains=false;u.holdFire=false;}
-  releaseBuilders(b){for(const u of this.units)if(u.buildingId===b.id)this.releaseBuilder(u);}
+  releaseBuilders(b){for(const u of this.units){if(u.buildingId===b.id)this.releaseBuilder(u);else if(u.leavingId===b.id){u.leavingId=null;u.allowMountains=false;}}}
   demolish(id){
     if(this.result)return '战局已结束';
     const b=this.buildings.find(b=>b.id===id&&b.team===0&&b.hp>0);
@@ -120,12 +163,12 @@ export class Game{
     this.revision++;this.updateVision();return null;
   }
   train(type,baseId=null){
-    if(!['shield','archer'].includes(type)||this.result)return '当前不能训练';
+    if(!['shield','archer','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
     const base=this.buildings.find(b=>b.type==='base'&&b.team===0&&b.hp>0&&!b.constructionPending&&(baseId===null||b.id===baseId));
     if(!base)return '请选择已完工的基地';
     const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=40)return '人口已达上限';
     if(this.queue.length>=8)return '训练队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足，基地正在持续生产';
-    this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:3,baseId:base.id});this.revision++;return null;
+    this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:s.trainTime||3,baseId:base.id});this.revision++;return null;
   }
   step(dt){
     if(this.result)return;this.revision++;this.time+=dt;
@@ -134,6 +177,25 @@ export class Game{
     for(const b of this.buildings){
       if(b.hp<=0){this.releaseBuilders(b);continue;}
       let productionTime=dt;
+      if(b.awaitingEviction){
+        const c=buildingCells(b);
+        const any=this.units.some(u=>u.hp>0&&!this.isFlying(u)&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1);
+        if(any){
+          for(const u of this.units.filter(u=>u.hp>0&&!this.isFlying(u)&&u.team===0&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1)){
+            u.leavingId=b.id;
+            if(u.order!=='move'||!u.path.length){
+              const target=this.evictTarget(b,u);
+              if(target){u.buildingId=null;u.waypoints=[];u.targetId=null;u.holdFire=false;u.allowMountains=true;u.order='move';u.goal=target;u.path=this.pathFor(u,target);u.repath=1.5;}
+            }
+          }
+          continue;
+        }
+        b.awaitingEviction=false;
+        for(const u of this.units)if(u.leavingId===b.id){u.leavingId=null;u.allowMountains=false;}
+        const assignments=this.builderAssignments(b.builderIds,b);
+        if(assignments.length)this.dispatchBuilders(b,assignments);
+        continue;
+      }
       if(b.constructionPending){
         const workers=this.units.filter(u=>u.hp>0&&u.team===b.team&&u.order==='build'&&u.buildingId===b.id&&u.goal&&distance(u,u.goal)<=.65).slice(0,STATS[b.type].maxBuilders||4);
         b.activeBuilders=workers.length;productionTime=0;
@@ -159,6 +221,7 @@ export class Game{
     const entities=this.entities();
     for(const u of this.units){
       if(u.hp<=0)continue;const s=STATS[u.type];u.cooldown=Math.max(0,u.cooldown-dt);u.repath-=dt;
+      if(this.isFlying(u)){this.stepFlight(u,dt,entities);continue;}
       if(u.order==='build'){
         const b=this.buildings.find(b=>b.id===u.buildingId&&b.hp>0&&b.constructionPending);
         if(!b){this.releaseBuilder(u);continue;}
@@ -169,22 +232,22 @@ export class Game{
         continue;
       }
       if(u.holdFire)continue;
-      let target=entities.find(e=>e.id===u.targetId&&e.hp>0&&this.canSee(u.team,e));
+      let target=entities.find(e=>e.id===u.targetId&&e.hp>0&&this.canSee(u.team,e)&&this.canEngage(u,e));
       if(target&&u.role==='guard'&&distance(u,u.home)>11)target=null;
       if(target&&u.role==='patrol'&&distance(u,target)>14)target=null;
       if(!target){u.targetId=null;
         if(u.order!=='move'){
-          const candidates=entities.filter(e=>e.team!==u.team&&e.hp>0&&this.canSee(u.team,e)&&distance(u,e)<=this.detectionRange(u)&&(u.role!=='guard'||(distance(u,u.home)<=11&&distance(e,u.home)<13)));
+          const candidates=entities.filter(e=>e.team!==u.team&&e.hp>0&&this.canSee(u.team,e)&&this.canEngage(u,e)&&distance(u,e)<=this.detectionRange(u)&&(u.role!=='guard'||(distance(u,u.home)<=11&&distance(e,u.home)<13)));
           candidates.sort((a,b)=>(distance(u,a)+(a.building?3:0))-(distance(u,b)+(b.building?3:0)));target=candidates[0];if(target)u.targetId=target.id;
         }
       }
       if(target){
-        const reach=s.range+(target.building?(STATS[target.type].halfSize||2)-.5:0);
-        if(distance(u,target)<=reach){
+        if(distance(u,target)<=this.attackRange(u,target)){
           u.facing=Math.atan2(target.y-u.y,target.x-u.x);
           if(u.cooldown<=0){u.cooldown=s.cooldown;u.revealUntil=this.time+2;
-            if(u.type==='archer')this.projectiles.push({x:u.x,y:u.y,fromX:u.x,fromY:u.y,targetId:target.id,team:u.team,damage:s.damage,life:2});
-            else{this.damage(target,s.damage);this.effects.push({x:target.x,y:target.y,team:u.team,kind:'hit',life:.22,maxLife:.22});}
+            const dmg=this.attackDamage(u,target);
+            if(u.type==='archer')this.projectiles.push({x:u.x,y:u.y,fromX:u.x,fromY:u.y,targetId:target.id,team:u.team,damage:dmg,life:2});
+            else{this.damage(target,dmg);this.effects.push({x:target.x,y:target.y,team:u.team,kind:'hit',life:.22,maxLife:.22});}
           }
           continue;
         }
@@ -194,16 +257,16 @@ export class Game{
         else if(u.role==='patrol'){
           const p=this.map.patrol[u.patrolIndex];if(distance(u,p)<2)u.patrolIndex=(u.patrolIndex+1)%this.map.patrol.length;
           if(!u.path.length||u.repath<=0){u.path=this.pathFor(u,this.map.patrol[u.patrolIndex]);u.repath=2;}
-        }else if(u.goal){if(distance(u,u.goal)<.8){u.goal=u.waypoints.shift()||null;u.path=u.goal?this.pathFor(u,u.goal):[];u.order=u.goal?'move':'idle';if(!u.goal)u.allowMountains=false;u.repath=1.5;}else if(!u.path.length||u.repath<=0){u.path=this.pathFor(u,u.goal);u.repath=1.5;}}
+        }else if(u.goal){if(distance(u,u.goal)<.8&&!this.stillLeaving(u)){u.goal=u.waypoints.shift()||null;u.path=u.goal?this.pathFor(u,u.goal):[];u.order=u.goal?'move':'idle';if(!u.goal)u.allowMountains=false;u.repath=1.5;}else if(!u.path.length||u.repath<=0){u.path=this.pathFor(u,u.goal);u.repath=1.5;}}
         else if(u.targetId===null&&u.order==='idle')u.path=[];
       }
       this.move(u,this.movementSpeed(u)*dt);
     }
     for(const tower of this.buildings.filter(b=>b.type==='tower'&&b.hp>0&&!b.constructionPending)){
       const s=STATS.tower;tower.cooldown=Math.max(0,tower.cooldown-dt);
-      const target=entities.filter(e=>e.team!==tower.team&&e.hp>0&&this.canSee(tower.team,e)&&distance(tower,e)<=this.detectionRange(tower)&&distance(tower,e)<=s.range+(e.building?(STATS[e.type].halfSize||2)-.5:0)).sort((a,b)=>distance(tower,a)-distance(tower,b))[0];
+      const target=entities.filter(e=>e.team!==tower.team&&e.hp>0&&this.canSee(tower.team,e)&&this.canEngage(tower,e)&&distance(tower,e)<=this.detectionRange(tower)&&distance(tower,e)<=this.attackRange(tower,e)).sort((a,b)=>distance(tower,a)-distance(tower,b))[0];
       if(target&&tower.cooldown<=0){tower.cooldown=s.cooldown;tower.revealUntil=this.time+2;
-        this.projectiles.push({x:tower.x,y:tower.y,fromX:tower.x,fromY:tower.y,targetId:target.id,team:tower.team,damage:s.damage,life:2});
+        this.projectiles.push({x:tower.x,y:tower.y,fromX:tower.x,fromY:tower.y,targetId:target.id,team:tower.team,damage:this.attackDamage(tower,target),life:2});
       }
     }
     this.separate(dt);
@@ -212,17 +275,66 @@ export class Game{
     this.units=this.units.filter(u=>u.hp>0);
     if(this.buildings.find(b=>b.team===0).hp<=0)this.result='defeat';else if(this.buildings.filter(b=>b.team===1).every(b=>b.hp<=0))this.result='victory';
   }
+  stepFlight(u,dt,entities){
+    const s=STATS[u.type],r=s.orbitRadius;
+    let target=!u.holdFire&&!u.landing&&entities.find(e=>e.id===u.targetId&&e.hp>0&&this.canSee(u.team,e)&&this.canEngage(u,e));
+    if(!target&&!u.holdFire&&!u.landing&&u.order!=='move')target=entities.filter(e=>e.team!==u.team&&e.hp>0&&this.canSee(u.team,e)&&this.canEngage(u,e)&&distance(u,e)<=this.detectionRange(u)).sort((a,b)=>distance(u,a)-distance(u,b))[0];
+    u.targetId=target?.id??null;
+    if(target&&distance(u,target)<=this.attackRange(u,target)&&u.cooldown<=0){
+      u.cooldown=s.cooldown;u.revealUntil=this.time+2;this.damage(target,this.attackDamage(u,target));
+      this.effects.push({x:target.x,y:target.y,team:u.team,kind:'hit',life:.22,maxLife:.22});
+    }
+    const angleDiff=a=>Math.atan2(Math.sin(a),Math.cos(a));
+    // 小步圆弧积分：弧长 / 转角始终不小于最小转弯半径。
+    for(let remaining=dt;remaining>1e-9;){
+      const h=Math.min(remaining,.02);remaining-=h;
+      if(u.waypoints.length&&u.goal&&distance(u,u.goal)<.8)u.goal=u.waypoints.shift();
+      let goal=target||u.landing||(u.waypoints.length?u.goal:null),desired;
+      if(goal){
+        desired=Math.atan2(goal.y-u.y,goal.x-u.x);
+        if(u.landing){
+          const d=distance(u,goal);
+          if(d<4&&Math.abs(angleDiff(desired-u.facing))>Math.PI/3)u.landingEscape=true;
+          if(d>5)u.landingEscape=false;
+          if(u.landingEscape)desired=u.facing;
+        }
+      }else{
+        if(!u.orbit)u.orbit={x:u.x-Math.sin(u.facing)*r,y:u.y+Math.cos(u.facing)*r};
+        const center=u.goal||u.orbit;
+        const cx=Math.max(r+1,Math.min(W-r-1,center.x)),cy=Math.max(r+1,Math.min(H-r-1,center.y));
+        const dx=u.x-cx,dy=u.y-cy,d=Math.hypot(dx,dy);
+        desired=Math.atan2(dy,dx)+Math.PI/2+s.speed*h/r+Math.atan((d-r)/r);
+      }
+      // 提前朝地图内部转弯，不通过夹紧位置或瞬间掉头破坏曲率约束。
+      const margin=s.minTurnRadius*2+1;
+      const landingAligned=u.landing&&Math.abs(angleDiff(Math.atan2(u.landing.y-u.y,u.landing.x-u.x)-u.facing))<.4;
+      if(!landingAligned&&((u.x<margin&&Math.cos(u.facing)<0)||(u.x>W-margin&&Math.cos(u.facing)>0)||(u.y<margin&&Math.sin(u.facing)<0)||(u.y>H-margin&&Math.sin(u.facing)>0)))u.boundaryReturn=true;
+      if(landingAligned||(u.x>margin&&u.x<W-margin&&u.y>margin&&u.y<H-margin))u.boundaryReturn=false;
+      if(u.boundaryReturn)desired=Math.atan2(H/2-u.y,W/2-u.x);
+      const length=s.speed*h,limit=length/s.minTurnRadius,turn=Math.max(-limit,Math.min(limit,angleDiff(desired-u.facing)));
+      const heading=u.facing;
+      if(Math.abs(turn)<1e-9){u.x+=Math.cos(heading)*length;u.y+=Math.sin(heading)*length;}
+      else{u.x+=length/turn*(Math.sin(heading+turn)-Math.sin(heading));u.y+=length/turn*(Math.cos(heading)-Math.cos(heading+turn));}
+      u.facing=angleDiff(heading+turn);
+      if(u.landing&&distance(u,u.landing)<.25&&walkable(this.map,this.buildings,Math.floor(u.x),Math.floor(u.y))){
+        u.flying=false;u.landing=null;u.goal=null;u.orbit=null;u.path=[];u.order='idle';u.targetId=null;break;
+      }
+      if(u.landing&&!walkable(this.map,this.buildings,Math.floor(u.landing.x),Math.floor(u.landing.y)))u.landing=nearestFree(this.map,this.buildings,u.landing.x,u.landing.y);
+    }
+  }
   damage(e,amount){e.hp=Math.max(0,e.hp-Math.max(1,amount-STATS[e.type].armor));}
   move(u,amount){
+    if(STATS[u.type].air&&!this.isFlying(u))return;
+    const buildings=u.leavingId!=null?this.buildings.filter(b=>b.id!==u.leavingId):this.buildings;
     const wasInMountain=this.map.terrain[index(u.x,u.y)]===1;
-    while(u.path.length&&amount>0){const p=u.path[0],d=distance(u,p);if(!walkable(this.map,this.buildings,Math.floor(p.x),Math.floor(p.y),this.avoidsMountains(u))){u.path=[];u.repath=0;return;}u.facing=Math.atan2(p.y-u.y,p.x-u.x);if(d<=amount){u.x=p.x;u.y=p.y;u.path.shift();amount-=d;}else{u.x+=(p.x-u.x)/d*amount;u.y+=(p.y-u.y)/d*amount;amount=0;}}
+    while(u.path.length&&amount>0){const p=u.path[0],d=distance(u,p);if(!walkable(this.map,buildings,Math.floor(p.x),Math.floor(p.y),this.avoidsMountains(u))){u.path=[];u.repath=0;return;}u.facing=Math.atan2(p.y-u.y,p.x-u.x);if(d<=amount){u.x=p.x;u.y=p.y;u.path.shift();amount-=d;}else{u.x+=(p.x-u.x)/d*amount;u.y+=(p.y-u.y)/d*amount;amount=0;}}
     if(wasInMountain&&this.avoidsMountains(u)){u.path=[];u.repath=0;}
   }
   separate(dt){
     for(let i=0;i<this.units.length;i++)for(let j=i+1;j<this.units.length;j++){
-      const a=this.units[i],b=this.units[j],d=distance(a,b);if(d>=.85)continue;
+      const a=this.units[i],b=this.units[j],d=distance(a,b);if(d>=.85||this.isFlying(a)||this.isFlying(b))continue;
       const dx=d>.001?(a.x-b.x)/d:1,dy=d>.001?(a.y-b.y)/d:0,k=Math.min((.85-d)*.5,dt*1.5);
-      for(const [u,sign]of [[a,1],[b,-1]]){const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
+      for(const [u,sign]of [[a,1],[b,-1]]){if(STATS[u.type].air)continue;const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
     }
   }
   snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}

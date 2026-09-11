@@ -55,7 +55,7 @@ export class Renderer{
         if(b.id===selectedBuilding){c.strokeStyle='#e0ebac';c.lineWidth=.15;c.strokeRect(-2,-2,4,4);}
         this.bar(c,0,-1.8,2.7,b.hp/b.maxHp,b.team);
         c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;
-        c.fillText(b.constructionPending?(b.activeBuilders?`采矿场 · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:'采矿场 · 等待施工'):'采矿场',0,b.constructionPending?1.8:2.8);
+        c.fillText(b.awaitingEviction?'采矿场 · 等待部队离开':b.constructionPending?(b.activeBuilders?`采矿场 · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:'采矿场 · 等待施工'):'采矿场',0,b.constructionPending?1.8:2.8);
         c.restore();continue;
       }
       if(b.type==='factory'){
@@ -63,7 +63,7 @@ export class Renderer{
         if(b.id===selectedBuilding){c.strokeStyle='#e0ebac';c.lineWidth=.15;c.strokeRect(-2,-2,4,4);}
         this.bar(c,0,-1.8,2.7,b.hp/b.maxHp,b.team);
         c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;
-        c.fillText(b.constructionPending?(b.activeBuilders?`食物厂 · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:'食物厂 · 等待施工'):'食物厂',0,b.constructionPending?1.8:2.8);
+        c.fillText(b.awaitingEviction?'食物厂 · 等待部队离开':b.constructionPending?(b.activeBuilders?`食物厂 · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:'食物厂 · 等待施工'):'食物厂',0,b.constructionPending?1.8:2.8);
         c.restore();continue;
       }
       if(b.type==='tower'){
@@ -77,10 +77,10 @@ export class Renderer{
         if(!b.constructionPending){c.fillStyle=TEAM[b.team];c.beginPath();c.arc(0,-2.45,.25,0,Math.PI*2);c.fill();c.strokeStyle='#f4dfaa';c.beginPath();c.moveTo(-.45,-2.4);c.lineTo(.45,-2.4);c.moveTo(0,-2.75);c.lineTo(0,-2.05);c.stroke();}
         this.bar(c,0,-3.1,2,b.hp/b.maxHp,b.team);
         c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;
-        c.fillText('哨塔'+(b.constructionPending?(b.activeBuilders?` · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:' · 等待施工'):''),0,1.8);
+        c.fillText('哨塔'+(b.awaitingEviction?' · 等待部队离开':b.constructionPending?(b.activeBuilders?` · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:' · 等待施工'):''),0,1.8);
         c.restore();continue;
       }
-      c.save();c.translate(b.x,b.y);c.fillStyle='#0c171880';c.fillRect(-1.7,-1.4,4,3.8);c.fillStyle=b.team===0?'#35515a':'#644b3a';c.strokeStyle=TEAM[b.team];c.lineWidth=.12;c.fillRect(-1.8,-1.8,3.6,3.6);c.strokeRect(-1.8,-1.8,3.6,3.6);c.fillStyle=b.team===0?'#72999b':'#af8660';c.beginPath();c.moveTo(-2,-.7);c.lineTo(0,-2.4);c.lineTo(2,-.7);c.closePath();c.fill();c.fillStyle='#1d2c27';c.fillRect(-.45,.1,.9,1.7);c.strokeStyle=TEAM[b.team];c.beginPath();c.moveTo(1,-1.7);c.lineTo(1,-3.3);c.stroke();c.fillStyle=TEAM[b.team];c.fillRect(1,-3.3,1,.55);this.bar(c,0,-3.8,4,b.hp/b.maxHp,b.team);c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;c.fillText(STATS[b.type].name+(b.constructionPending?(b.activeBuilders?` · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:' · 等待施工'):''),0,2.8);
+      c.save();c.translate(b.x,b.y);c.fillStyle='#0c171880';c.fillRect(-1.7,-1.4,4,3.8);c.fillStyle=b.team===0?'#35515a':'#644b3a';c.strokeStyle=TEAM[b.team];c.lineWidth=.12;c.fillRect(-1.8,-1.8,3.6,3.6);c.strokeRect(-1.8,-1.8,3.6,3.6);c.fillStyle=b.team===0?'#72999b':'#af8660';c.beginPath();c.moveTo(-2,-.7);c.lineTo(0,-2.4);c.lineTo(2,-.7);c.closePath();c.fill();c.fillStyle='#1d2c27';c.fillRect(-.45,.1,.9,1.7);c.strokeStyle=TEAM[b.team];c.beginPath();c.moveTo(1,-1.7);c.lineTo(1,-3.3);c.stroke();c.fillStyle=TEAM[b.team];c.fillRect(1,-3.3,1,.55);this.bar(c,0,-3.8,4,b.hp/b.maxHp,b.team);c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;c.fillText(STATS[b.type].name+(b.awaitingEviction?' · 等待部队离开':b.constructionPending?(b.activeBuilders?` · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:' · 等待施工'):''),0,2.8);
       if(b.id===selectedBuilding){c.strokeStyle='#e0ebac';c.lineWidth=.18;c.strokeRect(-2.1,-2.1,4.2,4.2);}
       if(b.type==='tower'&&!b.constructionPending){c.fillStyle='#85d7e3';c.beginPath();c.arc(0,-1.1,.45,0,Math.PI*2);c.fill();c.strokeStyle='#f4dfaa';c.lineWidth=.14;c.beginPath();c.moveTo(-.65,-1.1);c.lineTo(.65,-1.1);c.moveTo(0,-1.7);c.lineTo(0,-.5);c.stroke();}
       c.restore();
@@ -89,12 +89,14 @@ export class Renderer{
     for(const u of state.units){
       if(!all&&u.team!==team&&!visible[Math.floor(u.y)*W+Math.floor(u.x)])continue;
       const chosen=selected.has(u.id);if(chosen&&u.path.length){c.strokeStyle='#b4d6a94a';c.lineWidth=.08;c.setLineDash([.3,.3]);c.beginPath();c.moveTo(u.x,u.y);for(const p of u.path)c.lineTo(p.x,p.y);for(const p of (u.waypoints||[]))c.lineTo(p.x,p.y);c.stroke();c.setLineDash([]);}
+      if(chosen&&u.type==='pigeon'&&u.flying!==false&&!u.landing){const center=u.goal||u.orbit;if(center){c.strokeStyle='#b4d6a980';c.lineWidth=.08;c.beginPath();c.arc(Math.max(5,Math.min(W-5,center.x)),Math.max(5,Math.min(H-5,center.y)),STATS.pigeon.orbitRadius,0,Math.PI*2);c.stroke();}}
       if(!this.inView(u,2))continue;
       c.save();c.translate(u.x,u.y);c.fillStyle='#07161166';c.beginPath();c.ellipse(.15,.3,.62,.4,0,0,Math.PI*2);c.fill();
       if(chosen){c.strokeStyle='#e0ebac';c.lineWidth=.12;c.beginPath();c.arc(0,0,.77,0,Math.PI*2);c.stroke();}
       c.fillStyle=u.team===0?'#2c626c':'#8a513d';c.strokeStyle=TEAM[u.team];c.lineWidth=.12;c.beginPath();c.arc(0,0,.5,0,Math.PI*2);c.fill();c.stroke();
-      c.save();c.rotate(u.facing);c.strokeStyle='#e6e6c4';c.fillStyle='#d4dcc0';c.lineWidth=.1;c.beginPath();if(u.type==='shield'){c.moveTo(.05,-.3);c.lineTo(.3,-.22);c.lineTo(.28,.18);c.lineTo(.06,.34);c.lineTo(-.17,.18);c.lineTo(-.17,-.22);c.closePath();c.fill();}else{c.arc(-.16,0,.33,-1.2,1.2);c.stroke();c.beginPath();c.moveTo(-.04,-.3);c.lineTo(-.04,.3);c.moveTo(-.22,0);c.lineTo(.38,0);c.stroke();}c.restore();
+      c.save();c.rotate(u.facing);c.strokeStyle='#e6e6c4';c.fillStyle='#d4dcc0';c.lineWidth=.1;c.beginPath();if(u.type==='shield'){c.moveTo(.05,-.3);c.lineTo(.3,-.22);c.lineTo(.28,.18);c.lineTo(.06,.34);c.lineTo(-.17,.18);c.lineTo(-.17,-.22);c.closePath();c.fill();}else if(u.type==='wilddog'){c.arc(-.04,0,.28,0,Math.PI*2);c.stroke();c.beginPath();c.moveTo(.1,-.06);c.lineTo(.3,-.24);c.moveTo(.1,-.02);c.lineTo(.34,0);c.moveTo(.1,.06);c.lineTo(.3,.24);c.stroke();}else if(u.type==='pigeon'){c.arc(-.08,0,.2,0,Math.PI*2);c.fill();c.beginPath();c.moveTo(.08,0);c.lineTo(.32,-.06);c.lineTo(.32,.06);c.closePath();c.fill();c.moveTo(-.06,-.04);c.lineTo(-.26,-.3);c.moveTo(-.02,-.02);c.lineTo(-.32,-.22);c.moveTo(-.06,.04);c.lineTo(-.26,.3);c.moveTo(-.02,.02);c.lineTo(-.32,.22);c.stroke();c.strokeStyle='#f2f0dd';c.beginPath();c.arc(0,0,.72,0,Math.PI*2);c.stroke();}else{c.arc(-.16,0,.33,-1.2,1.2);c.stroke();c.beginPath();c.moveTo(-.04,-.3);c.lineTo(-.04,.3);c.moveTo(-.22,0);c.lineTo(.38,0);c.stroke();}c.restore();
       if(u.hp<u.maxHp||chosen)this.bar(c,0,-.96,1.35,u.hp/u.maxHp,u.team);
+      if(u.type==='pigeon'){c.fillStyle='#ece0ad';c.font='.55px sans-serif';c.textAlign='center';c.fillText(u.flying===false?'地面':u.landing?'降落中':'飞行',0,-1.35);}
       if(u.healing){c.fillStyle='#a6ef95';c.font='.9px sans-serif';c.textAlign='center';c.fillText('+',.9,-.5);}
       if(u.order==='build'){c.fillStyle='#f2ce45';c.font='.65px sans-serif';c.textAlign='center';c.fillText('建',0,1.4);}
       if(u.holdFire){c.fillStyle='#ece0ad';c.font='.65px sans-serif';c.textAlign='center';c.fillText('Ⅱ',0,1.4);}c.restore();
@@ -106,7 +108,7 @@ export class Renderer{
     }
     if(buildPreview&&Number.isFinite(buildPreview.x)&&Number.isFinite(buildPreview.y)){
       const p=buildPreview,r=p.halfSize||2;c.fillStyle=p.error?'#e66d6355':'#b8e67a55';c.strokeStyle=p.error?'#f09080':'#dcff9e';c.lineWidth=.15;c.fillRect(p.x-r,p.y-r,r*2,r*2);c.strokeRect(p.x-r,p.y-r,r*2,r*2);
-      c.fillStyle='#fff1d2';c.textAlign='center';c.font=`${Math.max(.8,12/z)}px "Microsoft YaHei"`;c.fillText(p.error||'左键建造',p.x,p.y+3);
+      c.fillStyle='#fff1d2';c.textAlign='center';c.font=`${Math.max(.8,12/z)}px "Microsoft YaHei"`;c.fillText(p.error||(p.evict?'单位将自动让位':'左键建造'),p.x,p.y+3);
     }
     if(marker&&marker.until>performance.now()){c.strokeStyle=marker.attack?'#f3b38a':'#d8e9a3';c.lineWidth=.12;const r=.7+(marker.until-performance.now())/1800;c.beginPath();c.arc(marker.x,marker.y,r,0,Math.PI*2);c.moveTo(marker.x-r-0.3,marker.y);c.lineTo(marker.x+r+.3,marker.y);c.moveTo(marker.x,marker.y-r-.3);c.lineTo(marker.x,marker.y+r+.3);c.stroke();}
     c.strokeStyle='#8c9b5e88';c.lineWidth=.12;c.strokeRect(0,0,W,H);c.restore();
