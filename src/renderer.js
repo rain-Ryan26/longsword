@@ -1,5 +1,8 @@
 import {W,H,STATS} from './data.js';
+import {buildingCells} from './pathfinding.js';
 const TEAM=['#85d7e3','#e59678'];
+// 矿点为区块：判断建筑是否覆盖该 1×1 格子
+const coversCell=(b,n)=>{const c=buildingCells(b);return n.x>=c.x0&&n.x<=c.x1&&n.y>=c.y0&&n.y<=c.y1;};
 export class Renderer{
   constructor(canvas,minimap){this.canvas=canvas;this.ctx=canvas.getContext('2d');this.minimap=minimap;this.mc=minimap.getContext('2d');this.camera={x:25,y:32,zoom:13};this.width=1;this.height=1;this.terrainCanvas=null;this.lastMap=null;this.sizeDirty=true;
     this.resizeObserver=new ResizeObserver(()=>{this.sizeDirty=true;});this.resizeObserver.observe(canvas);
@@ -32,12 +35,12 @@ export class Renderer{
     const c=this.ctx,z=this.camera.zoom,team=view===2?1:0,all=view===1,visible=state.visible[team],explored=state.explored[team];
     c.fillStyle='#101b17';c.fillRect(0,0,this.width,this.height);c.save();c.translate(this.width/2-this.camera.x*z,this.height/2-this.camera.y*z);c.scale(z,z);
     c.drawImage(this.terrainCanvas,0,0,W,H);
-    const mined=node=>state.buildings.some(b=>b.type==='mine'&&b.hp>0&&!b.constructionPending&&b.x===node.x&&b.y===node.y);
+    const mined=node=>state.buildings.some(b=>b.type==='mine'&&b.hp>0&&!b.constructionPending&&coversCell(b,node));
     for(const node of state.map.resources||[]){
       if(mined(node))continue;
       if(!all&&!explored[Math.floor(node.y)*W+Math.floor(node.x)])continue;
-      c.fillStyle='#f2ce45';c.fillRect(node.x-.65,node.y-.65,1.3,1.3);
-      c.textAlign='center';c.font='.75px "Microsoft YaHei"';c.fillText('矿产资源点',node.x,node.y+3);
+      c.fillStyle='#f2ce45';c.fillRect(node.x,node.y,1,1);
+      c.textAlign='center';c.font='.75px "Microsoft YaHei"';c.fillText('矿产资源点',node.x+.5,node.y+3);
     }
     // Paths and entities are clipped by the same fog painted at the end.
     for(const b of state.buildings){
@@ -134,7 +137,7 @@ export class Renderer{
     const unitsKey=`${backgroundKey}:${state.revision}:${state.time}`;
     if(this.miniUnitsKey!==unitsKey){
       const c=this.miniUnits.getContext('2d');c.drawImage(this.miniBackground,0,0);
-      for(const n of state.map.resources||[])if(!state.buildings.some(b=>b.type==='mine'&&b.hp>0&&!b.constructionPending&&b.x===n.x&&b.y===n.y)&&(all||state.explored[team][Math.floor(n.y)*W+Math.floor(n.x)])){c.fillStyle='#dfbd64';c.fillRect(n.x*s-3,n.y*s-3,6,6);}
+      for(const n of state.map.resources||[])if(!state.buildings.some(b=>b.type==='mine'&&b.hp>0&&!b.constructionPending&&coversCell(b,n))&&(all||state.explored[team][Math.floor(n.y)*W+Math.floor(n.x)])){c.fillStyle='#dfbd64';c.fillRect(n.x*s-2,n.y*s-2,s+4,s+4);}
       for(const e of [...state.buildings,...state.units])if(e.hp>0&&(all||e.team===team||state.visible[team][Math.floor(e.y)*W+Math.floor(e.x)])){c.fillStyle=e.type==='mine'?'#f2ce45':TEAM[e.team];const r=e.building?(e.type==='tower'?2:3):1.5;c.fillRect(e.x*s-r,e.y*s-r,r*2,r*2);}
       this.miniUnitsKey=unitsKey;
     }

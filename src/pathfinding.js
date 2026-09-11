@@ -1,9 +1,11 @@
 import {W,H,STATS} from './data.js';
 export const index=(x,y)=>Math.floor(y)*W+Math.floor(x);
+// 建筑占地格：center±halfSize 取整后的连续格子区间，兼容奇数尺寸（3×3）。
+export const buildingCells=b=>{const r=STATS[b.type]?.halfSize||2;return {x0:Math.round(b.x-r),x1:Math.round(b.x+r)-1,y0:Math.round(b.y-r),y1:Math.round(b.y+r)-1};};
 export function walkable(map,buildings,x,y,avoidMountains=false){
   if(x<0||y<0||x>=W||y>=H)return false;
   if(avoidMountains&&map.terrain[index(x,y)]===1)return false;
-  return !buildings.some(b=>b.hp>0&&Math.abs(x+.5-b.x)<(STATS[b.type]?.halfSize||2)&&Math.abs(y+.5-b.y)<(STATS[b.type]?.halfSize||2));
+  return !buildings.some(b=>{if(b.hp<=0)return false;const c=buildingCells(b);return x>=c.x0&&x<=c.x1&&y>=c.y0&&y<=c.y1;});
 }
 export function nearestFree(map,buildings,x,y,avoidMountains=false){
   x=Math.max(0,Math.min(W-1,Math.floor(x))); y=Math.max(0,Math.min(H-1,Math.floor(y)));

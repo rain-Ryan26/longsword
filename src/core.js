@@ -1,5 +1,5 @@
 import {W,H,STATS,createMap,DETECTION_MULTIPLIERS,MOVEMENT_MULTIPLIERS} from './data.js';
-import {findPath,nearestFree,walkable,index} from './pathfinding.js';
+import {findPath,nearestFree,walkable,index,buildingCells} from './pathfinding.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 export class Game{
   constructor(){
@@ -51,17 +51,20 @@ export class Game{
   }
   placement(type,point){
     if(!['base','mine','tower','factory'].includes(type))return {error:'未知建筑'};
-    const r=STATS[type].halfSize||2;
-    let p={x:Math.round(point.x),y:Math.round(point.y)};
+    const r=STATS[type].halfSize||2,odd=(r*2)%2===1;
+    // 建筑按区块（整格）占地：奇数尺寸中心在区块中心（x.5），偶数尺寸中心在格点上
+    let p={x:odd?Math.floor(point.x)+.5:Math.round(point.x),y:odd?Math.floor(point.y)+.5:Math.round(point.y)};
     if(type==='mine'){
-      const node=this.map.resources.find(n=>distance(n,point)<=2.5);
+      const node=this.map.resources.find(n=>distance({x:n.x+.5,y:n.y+.5},point)<=2.5);
       if(!node)return {error:'采矿场只能建在矿产资源点上',...p};
-      p={...node};
+      // 矿点为区块：奇数尺寸中心对齐区块中心；偶数尺寸取区块四角中离点击最近的格点为中心
+      p=odd?{x:node.x+.5,y:node.y+.5}:{x:Math.abs(node.x+1-point.x)<Math.abs(node.x-point.x)?node.x+1:node.x,y:Math.abs(node.y+1-point.y)<Math.abs(node.y-point.y)?node.y+1:node.y};
     }
     if(!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<r||p.y<r||p.x>W-r||p.y>H-r)return {...p,error:'建筑不能超出地图'};
-    if(this.buildings.some(b=>b.hp>0&&Math.abs(b.x-p.x)<r+(STATS[b.type].halfSize||2)&&Math.abs(b.y-p.y)<r+(STATS[b.type].halfSize||2)))return {...p,error:'与现有建筑冲突'};
-    for(let y=p.y-r;y<p.y+r;y++)for(let x=p.x-r;x<p.x+r;x++)if(!this.visible[0][index(x,y)])return {...p,error:'请在己方当前视野内建造'};
-    if(this.units.some(u=>u.hp>0&&Math.abs(u.x-p.x)<r+.5&&Math.abs(u.y-p.y)<r+.5))return {...p,error:'请先移开占地内的部队'};
+    const c=buildingCells({type,x:p.x,y:p.y});
+    if(this.buildings.some(b=>{if(b.hp<=0)return false;const o=buildingCells(b);return c.x0<=o.x1&&o.x0<=c.x1&&c.y0<=o.y1&&o.y0<=c.y1;}))return {...p,error:'与现有建筑冲突'};
+    for(let y=c.y0;y<=c.y1;y++)for(let x=c.x0;x<=c.x1;x++)if(!this.visible[0][index(x,y)])return {...p,error:'请在己方当前视野内建造'};
+    if(this.units.some(u=>u.hp>0&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1))return {...p,error:'请先移开占地内的部队'};
     return p;
   }
   build(ids,type,point){
@@ -80,8 +83,8 @@ export class Game{
   builderAssignments(ids,b){
     const assigned=this.units.filter(u=>u.hp>0&&u.buildingId===b.id&&u.order==='build');
     const buildings=this.buildings.includes(b)?this.buildings:[...this.buildings,b],spots=[];
-    const r=STATS[b.type].halfSize||2;
-    for(let i=-r;i<=r;i++)for(const p of [{x:b.x+i+.5,y:b.y-r-.5},{x:b.x+i+.5,y:b.y+r+.5},{x:b.x-r-.5,y:b.y+i+.5},{x:b.x+r+.5,y:b.y+i+.5}]){
+    const r=STATS[b.type].halfSize||2,c=buildingCells(b);
+    for(let i=c.x0;i<=c.x1;i++)for(const p of [{x:i+.5,y:b.y-r-.5},{x:i+.5,y:b.y+r+.5},{x:b.x-r-.5,y:i+.5},{x:b.x+r+.5,y:i+.5}]){
       if(!spots.some(q=>distance(p,q)<.1)&&!assigned.some(u=>u.goal&&distance(u.goal,p)<.8))spots.push(p);
     }
     const result=[];
