@@ -1,9 +1,9 @@
-import {W,H} from './data.js';
+import {W,H,STATS} from './data.js';
 export const index=(x,y)=>Math.floor(y)*W+Math.floor(x);
 export function walkable(map,buildings,x,y,avoidMountains=false){
   if(x<0||y<0||x>=W||y>=H)return false;
   if(avoidMountains&&map.terrain[index(x,y)]===1)return false;
-  return !buildings.some(b=>b.hp>0&&Math.abs(x+.5-b.x)<2&&Math.abs(y+.5-b.y)<2);
+  return !buildings.some(b=>b.hp>0&&Math.abs(x+.5-b.x)<(STATS[b.type]?.halfSize||2)&&Math.abs(y+.5-b.y)<(STATS[b.type]?.halfSize||2));
 }
 export function nearestFree(map,buildings,x,y,avoidMountains=false){
   x=Math.max(0,Math.min(W-1,Math.floor(x))); y=Math.max(0,Math.min(H-1,Math.floor(y)));

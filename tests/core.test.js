@@ -150,7 +150,8 @@ test('采矿场选址、扣费、产矿、拆除与矿点复用',()=>{
   assert.equal(g.build(ids,'mine',node),null);
   const mine=g.buildings.at(-1);assert.equal(mine.type,'mine');assert.equal(g.food,0);assert.equal(g.ore,0);
   assert.equal(walkable(g.map,g.buildings,node.x,node.y),false);
-  g.step(.5);assert.equal(g.ore,1);assert.equal(g.food,1.5);assert.equal(mine.constructionRemaining,59.5);
+  g.step(.5);assert.equal(g.ore,1);assert.equal(g.food,1.5);assert.equal(mine.constructionRemaining,180);
+  const builder=g.units.find(u=>u.buildingId===mine.id);builder.x=builder.goal.x;builder.y=builder.goal.y;
   mine.constructionRemaining=.25;g.step(.5);assert.equal(mine.constructionRemaining,0);assert.equal(g.ore,2.5);
   g.food=1000;g.ore=1000;assert.match(g.build(ids,'mine',node),/冲突/);
   assert.equal(g.demolish(mine.id),null);assert.equal(g.ore,1000);assert.equal(g.map.resources.length,1);

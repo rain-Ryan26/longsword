@@ -5,9 +5,10 @@ export const MOVEMENT_MULTIPLIERS = [1, 0.2, 0.6];
 export const STATS = {
   shield:{name:'盾兵',hp:150,armor:5,damage:18,cooldown:.85,range:1.5,speed:3.2,vision:10,food:35,ore:20},
   archer:{name:'弓箭兵',hp:75,armor:1,damage:14,cooldown:1.2,range:8,speed:3.5,vision:12,food:40,ore:15},
-  base:{name:'前线基地',hp:900,armor:4,vision:14},
-  mine:{name:'采矿场',hp:550,armor:3,vision:11,food:300,ore:400,buildTime:60},
-  tower:{name:'哨塔',hp:450,armor:5,vision:12*1.3,range:8*1.3,damage:14,cooldown:1.2,food:100,ore:200},
+  base:{name:'前线基地',hp:900,armor:4,vision:14,food:300,ore:600,buildTime:240,maxBuilders:6,healRange:6,healRate:2,healTargets:5},
+  mine:{name:'采矿场',hp:550,armor:3,vision:11,food:300,ore:400,buildTime:180},
+  tower:{name:'哨塔',hp:450,armor:5,vision:12*1.3,range:8*1.3,damage:14,cooldown:1.2,food:100,ore:200,buildTime:120,maxBuilders:2,halfSize:1},
+  factory:{name:'食物厂',hp:550,armor:3,vision:11,food:200,ore:100,buildTime:180},
   camp:{name:'资源营地',hp:550,armor:3,vision:11}
 };
 export function createMap(){

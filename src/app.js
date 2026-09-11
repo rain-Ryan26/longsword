@@ -20,10 +20,10 @@ function setAttack(on){if(on)closeBuild();attackMode=on;$('game').style.cursor=o
 function closeBuild(){buildMenu=false;buildType=null;selectedBuilding=null;buildPreview=null;setAttack(false);}
 function previewAt(p){
   const placement=game.placement(buildType,renderer.world(p.x,p.y)),s=STATS[buildType];
-  buildPreview={...placement,error:placement.error||(game.food<s.food||game.ore<s.ore?'资源不足':null)};
+  buildPreview={...placement,halfSize:s.halfSize||2,error:placement.error||(game.food<s.food||game.ore<s.ore?'资源不足':null)};
 }
 $('cancel-build').onclick=()=>{closeBuild();updateHud();};
-for(const type of ['mine','tower'])$('build-'+type).onclick=()=>{
+for(const type of ['base','mine','tower','factory'])$('build-'+type).onclick=()=>{
   if(observer)return;buildType=type;buildPreview=null;setAttack(false);
   canvas.style.cursor='crosshair';$('mode-hint').textContent=`放置${STATS[type].name}：左键建造 · 右键 / Esc 取消`;
   updateHud();
@@ -49,10 +49,14 @@ $('speed').onclick=()=>{speed=speed===1?2:1;sendSnapshot();updateHud();};
 function restart(){if(observer)return;Object.assign(game,new Game());closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera={x:25,y:32,zoom:13};setAttack(false);sendSnapshot();updateHud();toast('新行动开始');}
 $('restart').onclick=restart;$('again').onclick=restart;
 function stop(){if(observer)return;closeBuild();game.command([...selected],'stop');setAttack(false);toast(selected.size?'已停止移动并停火':'请先选择部队');}
-for(const type of ['shield','archer'])$('train-'+type).onclick=()=>{const error=game.train(type);toast(error||`${STATS[type].name}已加入训练队列`);updateHud();};
+for(const type of ['shield','archer'])$('train-'+type).onclick=()=>{const error=game.train(type,game.buildings.some(b=>b.id===selectedBuilding&&b.type==='base')?selectedBuilding:null);toast(error||`${STATS[type].name}已加入训练队列`);updateHud();};
+for(const type of ['shield','archer'])$('base-train-'+type).onclick=()=>{
+  if(observer)return;
+  const error=game.train(type,selectedBuilding);toast(error||`${STATS[type].name}已加入所选基地训练队列`);updateHud();
+};
 function local(event){const rect=$('game').getBoundingClientRect();return {x:event.clientX-rect.left,y:event.clientY-rect.top};}
 function visibleToView(e){const team=view===2?1:0;return view===1||e.team===team||state.visible[team][Math.floor(e.y)*W+Math.floor(e.x)];}
-function issue(p,attack,append=false,allowMountains=false){lastUnitClick=null;if(!selected.size){toast('请先选择部队');setAttack(false);return;}const world=renderer.world(p.x,p.y);if(world.x<0||world.y<0||world.x>=W||world.y>=H){toast('请在地图范围内下达指令');return;}const target=append||allowMountains?null:game.entities().find(e=>e.team===1&&game.canSee(0,e)&&Math.hypot(e.x-world.x,e.y-world.y)<(e.building?2:1));game.command([...selected],attack?'attack':target?'attack':'move',world,target?.id,append,allowMountains);if(allowMountains)toast('本次路线允许穿越山地');else if(append)toast('已追加移动路径点');marker={...world,attack:attack||!!target,until:performance.now()+1000};setAttack(false);}
+function issue(p,attack,append=false,allowMountains=false){lastUnitClick=null;if(!selected.size){toast('请先选择部队');setAttack(false);return;}const world=renderer.world(p.x,p.y);if(world.x<0||world.y<0||world.x>=W||world.y>=H){toast('请在地图范围内下达指令');return;}const site=!attack&&!append&&!allowMountains&&game.buildings.find(b=>b.team===0&&b.hp>0&&b.constructionPending&&Math.abs(b.x-world.x)<(STATS[b.type].halfSize||2)&&Math.abs(b.y-world.y)<(STATS[b.type].halfSize||2));if(site){toast(game.assistBuild([...selected],site.id)||'已派遣部队前往施工');setAttack(false);updateHud();return;}const target=append||allowMountains?null:game.entities().find(e=>e.team===1&&game.canSee(0,e)&&Math.hypot(e.x-world.x,e.y-world.y)<(e.building?(STATS[e.type].halfSize||2):1));game.command([...selected],attack?'attack':target?'attack':'move',world,target?.id,append,allowMountains);if(allowMountains)toast('本次路线允许穿越山地');else if(append)toast('已追加移动路径点');marker={...world,attack:attack||!!target,until:performance.now()+1000};setAttack(false);}
 const canvas=$('game');
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('pointerdown',e=>{if(!state)return;const p=local(e);if(e.button!==2)lastRightClick=null;if(e.button===1){e.preventDefault();drag={kind:'pan',sx:p.x,sy:p.y,x:p.x,y:p.y,cx:renderer.camera.x,cy:renderer.camera.y};canvas.setPointerCapture(e.pointerId);return;}if(observer)return;if(e.button===2){
@@ -62,7 +66,7 @@ canvas.addEventListener('pointerdown',e=>{if(!state)return;const p=local(e);if(e
   issue(p,false,e.shiftKey,!!doubleClick);
   lastRightClick=!e.shiftKey&&mountain&&!doubleClick?{x:p.x,y:p.y,time:now}:null;
   return;
-}if(e.button===0){if(buildType){const error=game.build([...selected],buildType,renderer.world(p.x,p.y));toast(error||(buildType==='mine'?'采矿场开始施工 · 60 秒':`${STATS[buildType].name}已建成`));if(!error)closeBuild();else previewAt(p);sendSnapshot();updateHud();return;}if(attackMode){issue(p,true);return;}drag={kind:'select',sx:p.x,sy:p.y,x:p.x,y:p.y,shift:e.shiftKey};canvas.setPointerCapture(e.pointerId);}});
+}if(e.button===0){if(buildType){const error=game.build([...selected],buildType,renderer.world(p.x,p.y));toast(error||`已派遣最多 ${STATS[buildType].maxBuilders||4} 名选中部队前往施工`);if(!error)closeBuild();else previewAt(p);sendSnapshot();updateHud();return;}if(attackMode){issue(p,true);return;}drag={kind:'select',sx:p.x,sy:p.y,x:p.x,y:p.y,shift:e.shiftKey};canvas.setPointerCapture(e.pointerId);}});
 canvas.addEventListener('pointermove',e=>{if(buildType&&game)previewAt(local(e));if(!drag)return;const p=local(e);drag.x=p.x;drag.y=p.y;if(drag.kind==='pan'){renderer.camera.x=drag.cx-(p.x-drag.sx)/renderer.camera.zoom;renderer.camera.y=drag.cy-(p.y-drag.sy)/renderer.camera.zoom;renderer.clamp();}});
 canvas.addEventListener('pointerup',e=>{if(!drag)return;if(drag.kind==='select'){
   closeBuild();if(!drag.shift)selected.clear();const click=Math.hypot(drag.x-drag.sx,drag.y-drag.sy)<5;
@@ -81,7 +85,7 @@ canvas.addEventListener('pointerup',e=>{if(!drag)return;if(drag.kind==='select')
       }
     }else {
       lastUnitClick=null;
-      const b=state.buildings.find(b=>b.team===0&&b.hp>0&&visibleToView(b)&&Math.abs(b.x-p.x)<2&&Math.abs(b.y-p.y)<2);
+      const b=state.buildings.find(b=>b.team===0&&b.hp>0&&visibleToView(b)&&Math.abs(b.x-p.x)<(STATS[b.type].halfSize||2)&&Math.abs(b.y-p.y)<(STATS[b.type].halfSize||2));
       if(b){selected.clear();selectedBuilding=b.id;}
     }
   }else{
@@ -115,6 +119,12 @@ window.addEventListener('keydown',e=>{
   if(key===' '){e.preventDefault();if(!e.repeat)togglePause();return;}
   if(key==='escape'){closeBuild();drag=null;updateHud();}
   if(observer||e.repeat)return;
+  if(buildMenu&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&['c','r','q','f'].includes(key)){
+    e.preventDefault();const type={c:'base',r:'mine',q:'tower',f:'factory'}[key];
+    if(game.result)return;
+    if(game.food<STATS[type].food||game.ore<STATS[type].ore){toast('资源不足');return;}
+    $('build-'+type).click();return;
+  }
   if(key==='b'){e.preventDefault();closeBuild();if([...selected].some(id=>game.units.some(u=>u.id===id&&u.team===0&&u.hp>0))){buildMenu=true;updateHud();}else toast('请先选择部队');}
   if(key==='a'){e.preventDefault();if(selected.size)setAttack(true);else toast('请先选择部队');}
   if(key==='s'){e.preventDefault();stop();}
@@ -136,10 +146,13 @@ function updateHud(){
   $('building-actions').hidden=observer||(!buildMenu&&!building);
   $('build-options').hidden=!buildMenu;$('demolish').hidden=!building;
   $('demolish').disabled=!!state.result;
+  $('base-training').hidden=observer||!building||building.type!=='base'||!!building.constructionPending;
+  for(const type of ['shield','archer'])$('base-train-'+type).disabled=!!state.result||!building||!!building.constructionPending||state.food<STATS[type].food||state.ore<STATS[type].ore;
+
   $('building-title').textContent=building?STATS[building.type].name:'建造菜单 · B';
-  $('building-info').textContent=building?`生命 ${Math.ceil(building.hp)} / ${building.maxHp} · ${building.type==='base'?'每秒 +3 食物、+2 矿产；可训练部队。拆除基地将判负。':building.type==='mine'?(building.constructionRemaining>0?`施工中 · 剩余 ${Math.ceil(building.constructionRemaining)} 秒，完工后每秒 +2 矿产`:'每秒 +2 矿产'):'驻守弓箭兵 · 视野 15.6 / 射程 10.4'}`:buildType?`左键放置${STATS[buildType].name}，绿色可建 / 红色不可建。`:'选择建筑后左键选址；采矿场只能建在金色矿点上。';
+  $('building-info').textContent=building?`生命 ${Math.ceil(building.hp)} / ${building.maxHp} · ${building.constructionPending?(building.activeBuilders?`施工 ${building.activeBuilders} 人 · 预计剩余 ${Math.ceil(building.constructionRemaining/building.activeBuilders)} 秒`:'等待施工人员到场 · 可选中部队右键补派'):building.type==='base'?'每秒 +3 食物、+2 矿产；6 格内最多治疗 5 人，每人每秒 +2 生命。下方可训练部队。初始基地拆除将判负。':building.type==='mine'?'每秒 +2 矿产':building.type==='factory'?'每秒 +2 食物':'驻守弓箭兵 · 视野 15.6 / 射程 10.4'}`:buildType?`左键放置${STATS[buildType].name}，绿色可建 / 红色不可建。`:'C 基地 / R 采矿场 / Q 哨塔 / F 食物厂，选择后左键选址。';
   if(building){$('selection-title').textContent=STATS[building.type].name;$('selection-count').textContent='1';$('selection-info').textContent='右下角可拆除建筑。';}
-  for(const type of ['mine','tower'])$('build-'+type).disabled=!!state.result||state.food<STATS[type].food||state.ore<STATS[type].ore;
+  for(const type of ['base','mine','tower','factory'])$('build-'+type).disabled=!!state.result||state.food<STATS[type].food||state.ore<STATS[type].ore;
   $('queue').textContent=state.queue.length?`训练 ${STATS[state.queue[0].type].name} · ${Math.max(0,state.queue[0].remaining).toFixed(1)} 秒 ｜ 排队 ${state.queue.length} 人`:'训练队列为空';
   $('result').hidden=!state.result;if(state.result){$('result-title').textContent=state.result==='victory'?'敌营已摧毁':'基地已失守';$('result-copy').textContent=state.result==='victory'?'两座敌营已摧毁，本次行动胜利。':'调整阵型，保护弓箭兵，再试一次。';}
   $('zoom-label').textContent=Math.round(renderer.camera.zoom/13*100)+'%';
