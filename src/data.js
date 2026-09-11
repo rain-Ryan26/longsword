@@ -4,14 +4,14 @@ export const W = 96, H = 64;
 export const DETECTION_MULTIPLIERS = [1, 1.2, 0.3];
 export const MOVEMENT_MULTIPLIERS = [1, 0.2, 0.6];
 export const STATS = {
-  shield:{name:'盾兵',hp:150,armor:5,damage:18,cooldown:.85,range:1.5,speed:1.6,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false},
-  archer:{name:'弓箭兵',hp:75,armor:1,damage:14,cooldown:1.2,range:8,speed:1.75,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false,antiAir:true},
+  shield:{name:'盾兵',hp:150,armor:4,damage:18,cooldown:.85,range:1.5,speed:1.6,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false},
+  archer:{name:'弓箭兵',hp:75,armor:1,damage:15,cooldown:1.2,range:7,speed:1.75,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false,antiAir:true},
   wilddog:{name:'野狗',hp:55,armor:0,damage:6,cooldown:.5,range:1.5,speed:2.75,vision:10,food:40,ore:0,trainTime:2,movable:true,air:false},
   pigeon:{name:'信鸽',hp:40,armor:0,damage:4,cooldown:.8,range:1.5,speed:5,vision:15,visionGround:5,food:60,ore:0,trainTime:2,movable:true,air:true,airOnly:true,minTurnRadius:2,orbitRadius:4},
-  base:{name:'前线基地',hp:900,armor:4,vision:14,food:500,ore:500,buildTime:240,maxBuilders:6,healRange:6,healRate:2,healTargets:5,pop:40},
-  mine:{name:'采矿场',hp:550,armor:3,vision:11,food:300,ore:400,buildTime:180,halfSize:1.5},
-  tower:{name:'哨塔',hp:450,armor:5,vision:10*1.3,range:8*1.3,damage:14,cooldown:1.2,food:100,ore:100,buildTime:120,maxBuilders:2,halfSize:1,antiAir:true},
-  factory:{name:'食物厂',hp:550,armor:3,vision:11,food:200,ore:200,buildTime:180,halfSize:1.5},
+  base:{name:'前线基地',hp:900,armor:4,vision:14,food:300,ore:400,buildTime:240,maxBuilders:6,healRange:6,healRate:2,healTargets:5,pop:40},
+  mine:{name:'采矿场',hp:550,armor:3,vision:11,food:100,ore:200,buildTime:180,halfSize:1.5},
+  tower:{name:'哨塔',hp:450,armor:5,vision:10*1.3,range:7*1.3,damage:15,cooldown:1.2,food:100,ore:150,buildTime:120,maxBuilders:2,halfSize:1,antiAir:true},
+  factory:{name:'食物厂',hp:550,armor:3,vision:11,food:100,ore:200,buildTime:180,halfSize:1.5},
   camp:{name:'资源营地',hp:550,armor:3,vision:11}
 };
 export function createMap(){
@@ -23,4 +23,40 @@ export function createMap(){
   }
   // resources 坐标为资源区块（格子）编号，矿点覆盖该 1×1 格子
   return {version:1,width:W,height:H,terrain,resources:[{x:24,y:40}],camps:[{x:76,y:18},{x:77,y:46}],patrol:[{x:57,y:25},{x:70,y:27},{x:72,y:37},{x:58,y:38}]};
+}
+// 进攻关卡：我方在西、敌方在东，中部山地森林分隔；双方对称经济
+export function createMapAttack(){
+  const terrain=new Array(W*H).fill(0);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const mountain=((x-48)/5)**2+((y-20)/12)**2<1||((x-46)/6)**2+((y-46)/10)**2<1;
+    const forest=((x-30)/8)**2+((y-12)/6)**2<1||((x-66)/8)**2+((y-52)/6)**2<1||((x-48)/7)**2+((y-33)/5)**2<1;
+    terrain[y*W+x]=mountain?1:forest?2:0;
+  }
+  return {version:1,width:W,height:H,terrain,resources:[{x:22,y:40},{x:72,y:24}],camps:[],patrol:[]};
+}
+// 防守关卡：中部山体纵墙仅留缺口，敌军须经缺口进攻我方基地
+export function createMapDefend(){
+  const terrain=new Array(W*H).fill(0);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const wall=Math.abs(x-50)<4&&(y<26||y>40);
+    const mountain=wall||((x-30)/6)**2+((y-10)/6)**2<1||((x-70)/6)**2+((y-54)/6)**2<1;
+    const forest=((x-38)/8)**2+((y-50)/6)**2<1||((x-62)/7)**2+((y-12)/6)**2<1;
+    terrain[y*W+x]=mountain?1:forest?2:0;
+  }
+  return {version:1,width:W,height:H,terrain,resources:[{x:22,y:40}],camps:[],patrol:[]};
+}
+
+// 九组伴生资源：四组及其旋转对应点，外加中央错开的一组。
+export function createMapBalanced(){
+  const width=128,height=88,terrain=new Array(width*height).fill(0);
+  const pairs=points=>points.flatMap(p=>[p,{x:width-1-p.x,y:height-1-p.y}]);
+  const resources=[...pairs([{x:18,y:74},{x:39,y:66},{x:21,y:37},{x:48,y:18}]),{x:60,y:43}];
+  const foodPoints=[...pairs([{x:10,y:66},{x:33,y:60},{x:27,y:31},{x:42,y:12}]),{x:67,y:44}];
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+    const ellipse=(cx,cy,rx,ry)=>((x-cx)/rx)**2+((y-cy)/ry)**2<1;
+    const mountain=ellipse(44,35,6,12)||ellipse(83,52,6,12)||ellipse(72,18,10,5)||ellipse(55,69,10,5);
+    const forest=ellipse(17,49,6,5)||ellipse(110,38,6,5)||ellipse(49,51,5,4)||ellipse(78,36,5,4);
+    terrain[y*width+x]=mountain?1:forest?2:0;
+  }
+  return {version:1,width,height,terrain,resources,foodPoints,camps:[],patrol:[],spawns:[{x:12,y:76},{x:116,y:12}]};
 }

@@ -4,6 +4,12 @@ import {Game,distance} from '../src/core.js';
 import {findPath,walkable} from '../src/pathfinding.js';
 import {W,H,STATS} from '../src/data.js';
 const advance=(g,t)=>{for(let n=0;n<t/.05;n++)g.step(.05);};
+test('基地、采矿场和食物厂采用当前建造成本',()=>{
+  assert.deepEqual(
+    ['base','mine','factory'].map(type=>[type,STATS[type].ore,STATS[type].food]),
+    [['base',400,300],['mine',200,100],['factory',200,100]]
+  );
+});
 test('A* 绕过建筑且不斜穿墙角',()=>{
   const g=new Game();g.addBuilding('camp',1,44,16);const path=findPath(g.map,g.buildings,{x:30,y:16},{x:58,y:16});assert.ok(path.length>0);assert.ok(path.some(p=>Math.abs(p.y-16)>2));
   let prev={x:30,y:16};for(const p of path){assert.ok(walkable(g.map,g.buildings,Math.floor(p.x),Math.floor(p.y)));const x=Math.floor(prev.x),y=Math.floor(prev.y),nx=Math.floor(p.x),ny=Math.floor(p.y);if(x!==nx&&y!==ny){assert.ok(walkable(g.map,g.buildings,nx,y));assert.ok(walkable(g.map,g.buildings,x,ny));}prev=p;}
@@ -11,7 +17,7 @@ test('A* 绕过建筑且不斜穿墙角',()=>{
 test('建筑墙隔断时不可达终点安全返回空路径',()=>{const map={terrain:new Array(W*H).fill(0)},wall=[];for(let y=0;y<=H;y+=3)wall.push({x:4.5,y,hp:100});assert.deepEqual(findPath(map,wall,{x:1.5,y:1.5},{x:8.5,y:5.5}),[]);});
 test('迷雾按阵营隔离，探索记录保留',()=>{const g=new Game(),enemy=g.units.find(u=>u.team===1),u=g.units.find(u=>u.team===0);assert.equal(g.canSee(0,enemy),false);u.x=enemy.x-3;u.y=enemy.y;g.updateVision();assert.equal(g.canSee(0,enemy),true);const i=Math.floor(enemy.y)*W+Math.floor(enemy.x);u.x=19;u.y=27;g.updateVision();assert.equal(g.visible[0][i],0);assert.equal(g.explored[0][i],1);});
 test('S 停止移动与开火，新命令恢复',()=>{const g=new Game(),u=g.units.find(u=>u.team===0);g.command([u.id],'move',{x:35,y:32});advance(g,1);g.command([u.id],'stop');const p={x:u.x,y:u.y};advance(g,2);assert.ok(distance(u,p)<.01);assert.equal(u.holdFire,true);assert.equal(u.targetId,null);g.command([u.id],'attack',{x:37,y:32});advance(g,2);assert.equal(u.holdFire,false);assert.ok(distance(u,p)>1.5);});
-test('弓箭延迟伤害、护甲扣减和射击暴露',()=>{const g=new Game();g.units=[];const a=g.addUnit('archer',0,35,31),b=g.addUnit('shield',1,42,31);b.holdFire=true;g.updateVision();g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(b.hp,150);assert.ok(a.revealUntil>g.time);advance(g,.4);assert.equal(b.hp,141);});
+test('弓箭延迟伤害、护甲扣减和射击暴露',()=>{const g=new Game();g.units=[];const a=g.addUnit('archer',0,35,31),b=g.addUnit('shield',1,42,31);b.holdFire=true;g.updateVision();g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(b.hp,150);assert.ok(a.revealUntil>g.time);advance(g,.4);assert.equal(b.hp,139);});
 test('停火不使正常视野内单位隐身，射击暴露过期',()=>{const g=new Game();g.units=[];g.buildings=[];g.map.terrain.fill(0);const a=g.addUnit('shield',0,20,20),b=g.addUnit('shield',1,40,20);a.holdFire=true;g.updateVision();assert.equal(g.canSee(1,a),false);a.revealUntil=2;g.updateVision();assert.equal(g.canSee(1,a),true);g.time=3;g.updateVision();assert.equal(g.canSee(1,a),false);b.x=24;g.updateVision();assert.equal(g.canSee(1,a),true);});
 test('训练扣费、出兵与人口上限',()=>{const g=new Game();assert.equal(g.train('shield'),null);assert.equal(g.food,950);assert.equal(g.ore,990);advance(g,4.1);assert.equal(g.units.filter(u=>u.team===0).length,15);assert.equal(g.queue.length,0);g.food=0;assert.match(g.train('archer'),/资源不足/);g.food=10000;g.ore=10000;while(g.units.filter(u=>u.team===0).length<40)g.addUnit('shield',0,18,36);assert.match(g.train('shield'),/人口/);});
 test('BOT 巡逻沿路线移动',()=>{const g=new Game(),u=g.units.find(u=>u.role==='patrol'),p={x:u.x,y:u.y};advance(g,10);assert.ok(distance(u,p)>3);assert.ok(u.patrolIndex>0);});
@@ -117,7 +123,8 @@ test('普通移动、攻击和停止清空待经点，追加不会覆盖正在�
 
 
 test('默认绕行山地且不斜穿山地墙角，双击模式允许进入',()=>{
-  const g=new Game();g.units=[];
+  const g=new Game();g.units=[];g.map.terrain.fill(0);
+  for(let x=40;x<=52;x++)g.map.terrain[16*W+x]=1;
   const u=g.addUnit('shield',0,30,16);
   g.command([u.id],'move',{x:58.5,y:16.5});
   assert.ok(u.path.length>0);
@@ -135,6 +142,19 @@ test('默认绕行山地且不斜穿山地墙角，双击模式允许进入',()=
   assert.ok(u.path.some(p=>g.map.terrain[Math.floor(p.y)*W+Math.floor(p.x)]===1));
   advance(g,40);assert.ok(distance(u,{x:44.5,y:16.5})<.8);assert.equal(u.allowMountains,false);
   assert.equal(g.movementSpeed(u),STATS.shield.speed*.2);
+});
+test('默认绕行森林且不斜穿森林墙角，双击模式允许进入',()=>{
+  const g=new Game();g.units=[];g.map.terrain.fill(0);
+  for(let x=40;x<=52;x++)g.map.terrain[16*W+x]=2;
+  const u=g.addUnit('shield',0,30,16);
+  g.command([u.id],'move',{x:58.5,y:16.5});
+  assert.ok(u.path.length>0);
+  for(const p of u.path)assert.notEqual(g.map.terrain[Math.floor(p.y)*W+Math.floor(p.x)],2);
+  g.command([u.id],'move',{x:44.5,y:16.5},null,false,true);
+  assert.equal(u.allowMountains,true);assert.deepEqual(u.goal,{x:44.5,y:16.5});
+  assert.ok(u.path.some(p=>g.map.terrain[Math.floor(p.y)*W+Math.floor(p.x)]===2));
+  advance(g,40);assert.ok(distance(u,{x:44.5,y:16.5})<.8);assert.equal(u.allowMountains,false);
+  assert.equal(g.movementSpeed(u),STATS.shield.speed*.6);
 });
 test('山地中可出山，出山后绕开下一片山地',()=>{
   const g=new Game();g.units=[];g.map.terrain.fill(0);
@@ -161,9 +181,9 @@ test('强制穿山随追加路线保留，普通命令和停止清除',()=>{
 
 test('采矿场选址、扣费、产矿、拆除与矿点复用',()=>{
   const g=new Game(),ids=[g.units.find(u=>u.team===0).id],node=g.map.resources[0];
-  assert.ok(node.x<W/2);g.food=300;g.ore=400;
+  assert.ok(node.x<W/2);g.food=100;g.ore=200;
   assert.match(g.build(ids,'mine',{x:30,y:30}),/矿产资源点/);
-  assert.equal(g.food,300);assert.equal(g.ore,400);
+  assert.equal(g.food,100);assert.equal(g.ore,200);
   assert.equal(g.build(ids,'mine',node),null);
   const mine=g.buildings.at(-1);assert.equal(mine.type,'mine');assert.equal(g.food,0);assert.equal(g.ore,0);
   assert.equal(walkable(g.map,g.buildings,node.x,node.y),false);
@@ -195,7 +215,7 @@ test('建造允许我方单位自动让位，清空占地后才开始施工',()=
   assert.equal(tower.awaitingEviction,true);
   assert.equal(tower.constructionPending,true);
   assert.equal(u.leavingId,tower.id);
-  assert.equal(g.food,900);assert.equal(g.ore,900); // 下达命令即扣费
+  assert.equal(g.food,900);assert.equal(g.ore,850); // 下达命令即扣费（哨塔 100 食物 / 150 矿产）
   let n=0;while(tower.awaitingEviction&&n++<400)g.step(.05);
   assert.ok(n<400,'让位应在有限步内完成');
   assert.equal(tower.awaitingEviction,false);
@@ -218,13 +238,13 @@ test('施工点位沿建筑四边生成，建筑中心 x≠y 时不再偏移',()
 });
 test('哨塔固定驻兵使用增强射程、视野和弹道，拆除后停止攻击',()=>{
   const g=new Game();g.units=[];g.map.terrain.fill(0);
-  const tower=g.addBuilding('tower',0,35,32),enemy=g.addUnit('shield',1,45,32);enemy.x=45;enemy.y=32;enemy.holdFire=true;
+  const tower=g.addBuilding('tower',0,35,32),enemy=g.addUnit('shield',1,43,32);enemy.x=43;enemy.y=32;enemy.holdFire=true;
   assert.equal(tower.hp,STATS.shield.hp*3);assert.equal(g.detectionRange(tower),STATS.archer.vision*1.3);
   assert.equal(STATS.tower.range,STATS.archer.range*1.3);g.updateVision();
   g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(enemy.hp,150);
-  advance(g,.5);assert.equal(enemy.hp,141);assert.equal(tower.x,35);assert.equal(g.units.length,1);
+  advance(g,.5);assert.equal(enemy.hp,139);assert.equal(tower.x,35);assert.equal(g.units.length,1);
   enemy.x=46;g.projectiles=[];tower.cooldown=0;g.updateVision();g.step(.05);assert.equal(g.projectiles.length,0);
-  enemy.x=45;assert.equal(g.demolish(tower.id),null);g.step(.05);assert.equal(g.projectiles.length,0);
+  enemy.x=43;assert.equal(g.demolish(tower.id),null);g.step(.05);assert.equal(g.projectiles.length,0);
 });
 test('基地拆除立即判负，重开恢复初始建筑与矿点',()=>{
   const g=new Game();g.train('shield');assert.equal(g.demolish(g.buildings[0].id),null);
@@ -255,17 +275,17 @@ test('弓箭兵对空射程 2、伤害减半，对地不变',()=>{
   assert.equal(a.targetId,pigeon.id); // 索敌到空中目标
   assert.equal(pigeon.hp,STATS.pigeon.hp); // 距离超出对空射程，未受击
   pigeon.x=31.5;g.step(.05);advance(g,.1);
-  assert.equal(pigeon.hp,STATS.pigeon.hp-7); // 对空伤害减半 14/2=7
+  assert.equal(pigeon.hp,STATS.pigeon.hp-7.5); // 对空伤害减半 15/2=7.5
   pigeon.hp=0; // 移除空中目标后对地伤害不变
   const ground=g.addUnit('shield',1,31.5,30);ground.holdFire=true;a.cooldown=0;a.targetId=null;
-  advance(g,.4);assert.equal(ground.hp,141); // 对地 14 - 护甲 5
+  advance(g,.4);assert.equal(ground.hp,139); // 对地 15 - 护甲 4
 });
 test('哨塔可对空：射程 2、伤害减半',()=>{
   const g=new Game();g.units=[];g.map.terrain.fill(0);
   const tower=g.addBuilding('tower',0,35,32),pigeon=g.addUnit('pigeon',1,37.5,32);pigeon.holdFire=true;
   g.updateVision();g.step(.05);assert.equal(g.projectiles.length,0);
-  pigeon.x=36.5;g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(g.projectiles[0].damage,7);
-  advance(g,.4);assert.equal(pigeon.hp,STATS.pigeon.hp-7);
+  pigeon.x=36.5;g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(g.projectiles[0].damage,7.5);
+  advance(g,.4);assert.equal(pigeon.hp,STATS.pigeon.hp-7.5);
 });
 
 test('信鸽持续飞行，急转弯半径不小于 2，目标点盘旋半径为 4',()=>{
@@ -342,5 +362,122 @@ test('落地信鸽不能移动或被挤动，位置和攻击命令先起飞',()=
     g.command([u.id],kind,{x:40,y:30});assert.equal(u.flying,true);
     assert.equal(u.path.length,0);assert.deepEqual(u.goal,{x:40,y:30});
     advance(g,.1);assert.ok(distance(u,p)>.4);
+  }
+});
+
+test('进攻关卡：双方对称经济，AI 持续补员，摧毁敌方全部建筑获胜',()=>{
+  const g=new Game('attack');
+  assert.equal(g.level,'attack');
+  // 双方各有主基地、采矿场、食物厂
+  for(const team of [0,1]){
+    assert.equal(g.buildings.filter(b=>b.team===team&&b.type==='base').length,1);
+    assert.equal(g.buildings.filter(b=>b.team===team&&b.type==='mine').length,1);
+    assert.equal(g.buildings.filter(b=>b.team===team&&b.type==='factory').length,1);
+  }
+  assert.equal(g.food,1000);assert.equal(g.ore,1000);
+  assert.equal(g.aiFood,1000);assert.equal(g.aiOre,1000);
+  // AI 经济随时间增长（采矿场 5/秒、食物厂 3/秒），暂停 AI 脚本隔离验证产出
+  g.ai=null;
+  const ore0=g.aiOre,food0=g.aiFood;advance(g,2);
+  assert.ok(Math.abs(g.aiOre-ore0-10)<1e-6);assert.ok(Math.abs(g.aiFood-food0-6)<1e-6);
+  // AI 会训练补员
+  const h=new Game('attack');
+  advance(h,10);
+  assert.ok(h.aiQueue.length>0||h.units.filter(u=>u.team===1).length>14);
+  // 仅摧毁主基地不获胜，需摧毁敌方全部建筑
+  const enemyBase=g.buildings.find(b=>b.team===1&&b.primary);
+  g.damage(enemyBase,99999);g.step(.05);
+  assert.equal(g.result,null);
+  for(const b of g.buildings)if(b.team===1)g.damage(b,99999);
+  g.step(.05);
+  assert.equal(g.result,'victory');
+});
+
+for(const [randomValue,count] of [[.1,40],[.9,60]]){
+  test(`防守 ${count} 人：等量开局、两波、准备和休整计时、保留建筑胜利`,()=>{
+    const random=Math.random;let g;
+    try{Math.random=()=>randomValue;g=new Game('defend');}finally{Math.random=random;}
+    assert.deepEqual(g.defense.sizes,[count,count/2]);
+    assert.equal(g.buildings.filter(b=>b.team===1).length,0);
+    for(const team of [0,1]){
+      const army=g.units.filter(u=>u.team===team);
+      assert.equal(army.length,count);
+      assert.equal(army.filter(u=>u.type==='shield').length,Math.round(count*1.2/2.2));
+      assert.ok(army.every(u=>['shield','archer'].includes(u.type)));
+    }
+    g.time=119.9;g.step(.05);assert.equal(g.defense.wave,0);
+    assert.ok(g.units.filter(u=>u.team===1).every(u=>u.role==='guard'));
+    g.time=120;g.step(.05);assert.equal(g.defense.wave,1);
+    assert.ok(g.units.filter(u=>u.team===1).every(u=>u.order==='attack'));
+    const base=g.buildings.find(b=>b.team===0&&b.primary);
+    g.damage(base,99999);g.step(.05);assert.equal(g.result,null);
+    assert.notEqual(g.ai.targetId,base.id,'主基地毁后转攻其他建筑');
+    for(const u of g.units)if(u.team===1)u.hp=0;
+    g.step(.05);assert.equal(g.result,null);
+    const next=g.defense.nextWaveAt;assert.ok(next>g.time);
+    assert.equal(g.snapshot().defense.nextWaveAt,next);
+    g.time=next-.1;g.step(.05);assert.equal(g.defense.wave,1);
+    g.time=next;g.step(.05);assert.equal(g.defense.wave,2);
+    const wave=g.units.filter(u=>u.team===1);
+    assert.equal(wave.length,count/2);
+    assert.equal(wave.filter(u=>u.type==='shield').length,Math.round(count/2*1.2/2.2));
+    assert.ok(wave.every(u=>u.role==='attack'&&u.order==='attack'));
+    assert.equal(g.aiQueue.length,0);
+    for(const u of wave)u.hp=0;
+    g.step(.05);assert.equal(g.result,'victory');
+  });
+}
+
+test('防守：提前清场仍保留完整准备期和休整期',()=>{
+  const g=new Game('defend');
+  for(const u of g.units)if(u.team===1)u.hp=0;
+  g.step(.05);assert.equal(g.result,null);assert.equal(g.defense.nextWaveAt,120);
+  g.time=120;g.step(.05);assert.equal(g.defense.wave,1);
+  assert.equal(g.defense.nextWaveAt,g.time+30);
+  assert.equal(g.result,null);
+});
+
+test('防守：拆除主基地可继续，最后一座建筑被毁判负',()=>{
+  for(const demolish of [true,false]){
+    const g=new Game('defend'),buildings=g.buildings.filter(b=>b.team===0);
+    const base=buildings.find(b=>b.primary);
+    if(demolish)assert.equal(g.demolish(base.id),null);else g.damage(base,99999);
+    g.step(.05);assert.equal(g.result,null);
+    for(const b of buildings.filter(b=>!b.primary)){
+      if(demolish)g.demolish(b.id);else g.damage(b,99999);
+    }
+    g.defense.wave=2;for(const u of g.units)if(u.team===1)u.hp=0;
+    g.step(.05);assert.equal(g.result,'defeat');
+  }
+});
+
+test('进攻关卡初始基地被毁判负',()=>{
+  const g=new Game('attack');g.damage(g.buildings.find(b=>b.team===0&&b.primary),99999);
+  g.step(.05);assert.equal(g.result,'defeat');
+});
+
+test('防守重开重置波次，切换关卡清除波次状态',()=>{
+  const g=new Game('defend');g.defense.wave=2;g.defense.nextWaveAt=null;
+  Object.assign(g,new Game('defend'));
+  assert.equal(g.defense.wave,0);assert.equal(g.defense.nextWaveAt,120);
+  Object.assign(g,new Game('demo'));assert.equal(g.snapshot().defense,null);
+});
+
+test('进攻、防守固定 100 人口，双方训练计入排队人数',()=>{
+  for(const level of ['attack','defend']){
+    const g=new Game(level);
+    assert.equal(g.snapshot().popCap,100);assert.equal(g.popCap(1),100);
+    const extra=g.addBuilding('base',0,10,10);
+    assert.equal(g.popCap(),100);extra.hp=0;assert.equal(g.popCap(),100);
+    g.food=g.ore=g.aiFood=g.aiOre=10000;
+    for(const team of [0,1]){
+      if(!g.buildings.some(b=>b.team===team&&b.type==='base'))g.addBuilding('base',team,84,32);
+      while(g.units.filter(u=>u.team===team).length<99)g.addUnit('shield',team,team?80:20,30);
+      const train=()=>team?g.aiTrain('shield'):g.train('shield');
+      assert.equal(train(),null);assert.match(train(),/人口/);
+    }
+    for(const b of g.buildings)if(b.type==='base')b.hp=0;
+    assert.equal(g.popCap(),100);assert.equal(g.popCap(1),100);
+    assert.match(g.train('shield'),/基地/);assert.match(g.aiTrain('shield'),/基地/);
   }
 });

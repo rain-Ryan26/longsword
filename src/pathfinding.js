@@ -1,13 +1,16 @@
-import {W,H,STATS} from './data.js';
-export const index=(x,y)=>Math.floor(y)*W+Math.floor(x);
+import {W,STATS} from './data.js';
+export const index=(x,y,width=W)=>Math.floor(y)*width+Math.floor(x);
 // 建筑占地格：center±halfSize 取整后的连续格子区间，兼容奇数尺寸（3×3）。
 export const buildingCells=b=>{const r=STATS[b.type]?.halfSize||2;return {x0:Math.round(b.x-r),x1:Math.round(b.x+r)-1,y0:Math.round(b.y-r),y1:Math.round(b.y+r)-1};};
 export function walkable(map,buildings,x,y,avoidMountains=false){
+  const W=map.width??96,H=map.height??64;
   if(x<0||y<0||x>=W||y>=H)return false;
-  if(avoidMountains&&map.terrain[index(x,y)]===1)return false;
+  // 避让时，慢速地形（山地、森林）视为不可走
+  if(avoidMountains&&map.terrain[index(x,y,W)]!==0)return false;
   return !buildings.some(b=>{if(b.hp<=0)return false;const c=buildingCells(b);return x>=c.x0&&x<=c.x1&&y>=c.y0&&y<=c.y1;});
 }
 export function nearestFree(map,buildings,x,y,avoidMountains=false){
+  const W=map.width??96,H=map.height??64;
   x=Math.max(0,Math.min(W-1,Math.floor(x))); y=Math.max(0,Math.min(H-1,Math.floor(y)));
   for(let r=0;r<12;r++) for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){
     if(Math.max(Math.abs(dx),Math.abs(dy))!==r)continue;
@@ -21,6 +24,7 @@ class Heap{
   pop(){const first=this.a[0],last=this.a.pop();if(this.a.length){let i=0;while(i*2+1<this.a.length){let j=i*2+1;if(j+1<this.a.length&&this.a[j+1].f<this.a[j].f)j++;if(this.a[j].f>=last.f)break;this.a[i]=this.a[j];i=j;}this.a[i]=last;}return first;}
 }
 export function findPath(map,buildings,start,end,avoidMountains=false){
+  const W=map.width??96,H=map.height??64;
   const dest=nearestFree(map,buildings,end.x,end.y,avoidMountains);if(!dest)return [];
   const sx=Math.floor(start.x),sy=Math.floor(start.y),tx=Math.floor(dest.x),ty=Math.floor(dest.y),goal=ty*W+tx;
   const heap=new Heap(),g=new Float64Array(W*H).fill(Infinity),parent=new Int32Array(W*H).fill(-1),closed=new Uint8Array(W*H);

@@ -1,25 +1,89 @@
-import {W,H,STATS,createMap,DETECTION_MULTIPLIERS,MOVEMENT_MULTIPLIERS} from './data.js';
-import {findPath,nearestFree,walkable,index,buildingCells} from './pathfinding.js';
+import {STATS,createMap,createMapAttack,createMapBalanced,createMapDefend,DETECTION_MULTIPLIERS,MOVEMENT_MULTIPLIERS} from './data.js';
+import {findPath,nearestFree,walkable,buildingCells} from './pathfinding.js';
+import {DefendAI,AssaultAI,BalancedAI} from './ai.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 // 视线消耗系数：陆地视野经过每格时消耗 1/侦测系数 的有效侦测距离
 const TERRAIN_COST=DETECTION_MULTIPLIERS.map(m=>1/m);
 export class Game{
-  constructor(){
-    this.map=createMap();this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.time=0;this.nextId=1;this.food=1000;this.ore=1000;this.queue=[];this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
-    this.visible=[new Array(W*H).fill(0),new Array(W*H).fill(0)];this.explored=[new Array(W*H).fill(0),new Array(W*H).fill(0)];
-    this.addBuilding('base',0,12,32).primary=true;
-    this.map.camps.forEach((p,i)=>{this.addBuilding('camp',1,p.x,p.y);for(let n=0;n<7;n++){const u=this.addUnit(n<4?'shield':'archer',1,p.x-6+(n%3)*2,p.y-4+Math.floor(n/3)*3);u.home={x:u.x,y:u.y};u.role='guard';u.camp=i;}});
-    for(let n=0;n<14;n++)this.addUnit(n<8?'shield':'archer',0,19+(n%4)*2,27+Math.floor(n/4)*2.2);
-    for(let n=0;n<5;n++){const u=this.addUnit(n<3?'shield':'archer',1,57+n*1.3,29);u.role='patrol';u.patrolIndex=0;}
+  constructor(level='demo'){
+    this.level=level;this.defense=null;
+    this.map=level==='balanced'?createMapBalanced():level==='attack'?createMapAttack():level==='defend'?createMapDefend():createMap();
+    this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.time=0;this.nextId=1;
+    this.food=1000;this.ore=1000;this.queue=[];this.aiFood=1000;this.aiOre=1000;this.aiQueue=[];
+    this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
+    this.visible=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];this.explored=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];
+    if(level==='balanced'){this.aiFood=500;this.aiOre=500;}
+    this.setupLevel();
+    this.ai=level==='balanced'?new BalancedAI():level==='attack'?new DefendAI():level==='defend'?new AssaultAI():null;
     this.updateVision();
   }
+  cellIndex(x,y){return Math.floor(y)*this.map.width+Math.floor(x);}
+  setupLevel(){
+    if(this.level==='balanced'){
+      for(const team of [0,1]){
+        const p=this.map.spawns[team];
+        this.addBuilding('base',team,p.x,p.y).primary=true;
+        const node=this.map.resources[team],food=this.map.foodPoints[team];
+        this.addBuilding('mine',team,node.x+.5,node.y+.5);
+        this.addBuilding('factory',team,food.x+.5,food.y+.5);
+        for(let n=0;n<12;n++){
+          const x=20+(n%4)*2,y=66+Math.floor(n/4)*2;
+          this.addUnit(n<6?'shield':'archer',team,team?this.map.width-x:x,team?this.map.height-y:y);
+        }
+      }
+      return;
+    }
+    if(this.level==='demo'){
+      this.addBuilding('base',0,12,32).primary=true;
+      this.map.camps.forEach((p,i)=>{this.addBuilding('camp',1,p.x,p.y);for(let n=0;n<7;n++){const u=this.addUnit(n<4?'shield':'archer',1,p.x-6+(n%3)*2,p.y-4+Math.floor(n/3)*3);u.home={x:u.x,y:u.y};u.role='guard';u.camp=i;}});
+      for(let n=0;n<14;n++)this.addUnit(n<8?'shield':'archer',0,19+(n%4)*2,27+Math.floor(n/4)*2.2);
+      for(let n=0;n<5;n++){const u=this.addUnit(n<3?'shield':'archer',1,57+n*1.3,29);u.role='patrol';u.patrolIndex=0;}
+      return;
+    }
+    if(this.level==='defend'){
+      const firstWave=Math.random()<.5?40:60;
+      this.defense={sizes:[firstWave,firstWave/2],wave:0,nextWaveAt:120};
+      this.addBuilding('base',0,12,32).primary=true;
+      this.addBuilding('mine',0,22.5,40.5);
+      this.addBuilding('factory',0,16.5,22.5);
+      this.spawnDefenseArmy(firstWave,0);
+      this.spawnDefenseArmy(firstWave,1);
+      return;
+    }
+    const attack=this.level==='attack';
+    // 双方对称经济：主基地、采矿场（矿点上）、食物厂，均直接完工
+    this.addBuilding('base',0,12,32).primary=true;
+    this.addBuilding('mine',0,22.5,40.5);
+    this.addBuilding('factory',0,16.5,22.5);
+    this.addBuilding('base',1,84,32).primary=true;
+    this.addBuilding('mine',1,72.5,24.5);
+    this.addBuilding('factory',1,79.5,22.5);
+    const playerCount=attack?14:20,playerShield=attack?8:10;
+    for(let n=0;n<playerCount;n++)this.addUnit(n<playerShield?'shield':'archer',0,19+(n%4)*2,27+Math.floor(n/4)*2.2);
+    const enemyCount=attack?14:22,enemyShield=attack?8:14;
+    for(let n=0;n<enemyCount;n++){
+      const u=this.addUnit(n<enemyShield?'shield':'archer',1,78+(n%4)*2,27+Math.floor(n/4)*2.2);
+      u.home={x:u.x,y:u.y};u.role='guard';
+    }
+  }
+  spawnDefenseArmy(count,team){
+    const shields=Math.round(count*1.2/2.2);
+    for(let n=0;n<count;n++){
+      // 每列十人，盾兵在朝向战场的一侧，弓兵在后；避开己方经济建筑。
+      const front=n<shields,index=front?n:n-shields;
+      const depth=Math.floor(index/10),x=team?(front?74+depth*2:84+depth*2):(front?30-depth*2:22-depth*2);
+      const u=this.addUnit(front?'shield':'archer',team,x,24+(index%10)*2);
+      if(team){u.home={x:u.x,y:u.y};u.role='guard';}
+    }
+  }
   addBuilding(type,team,x,y){const b={id:this.nextId++,type,team,x,y,hp:STATS[type].hp,maxHp:STATS[type].hp,building:true,revealUntil:0,cooldown:0};this.buildings.push(b);return b;}
-  addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],waypoints:[],allowMountains:false,goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0,flying:!!STATS[type].air};if(u.flying&&(u.x<5||u.x>W-5||u.y<5||u.y>H-5))u.facing=Math.atan2(H/2-u.y,W/2-u.x);this.units.push(u);return u;}
+  addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],waypoints:[],allowMountains:false,goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0,flying:!!STATS[type].air};if(u.flying&&(u.x<5||u.x>this.map.width-5||u.y<5||u.y>this.map.height-5))u.facing=Math.atan2(this.map.height/2-u.y,this.map.width/2-u.x);this.units.push(u);return u;}
   entities(){return [...this.units,...this.buildings].filter(e=>e.hp>0);}
-  canSee(team,e){return e.team===team||!!this.visible[team][index(e.x,e.y)];}
+  canSee(team,e){return e.team===team||!!this.visible[team][this.cellIndex(e.x,e.y)];}
   detectionRange(e){return this.isFlying(e)||!('visionGround' in STATS[e.type])?STATS[e.type].vision:STATS[e.type].visionGround;}
-  movementSpeed(u){if(STATS[u.type].air)return this.isFlying(u)?STATS[u.type].speed:0;return STATS[u.type].speed*(MOVEMENT_MULTIPLIERS[this.map.terrain[index(u.x,u.y)]]??1);}
-  avoidsMountains(u){return !this.isFlying(u)&&!u.allowMountains&&this.map.terrain[index(u.x,u.y)]!==1;}
+  movementSpeed(u){if(STATS[u.type].air)return this.isFlying(u)?STATS[u.type].speed:0;return STATS[u.type].speed*(MOVEMENT_MULTIPLIERS[this.map.terrain[this.cellIndex(u.x,u.y)]]??1);}
+  // 是否应避让慢速地形（山地、森林）：非飞行、未开启穿越，且脚下在平地上（便于从慢速地形中走出）
+  avoidsMountains(u){return !this.isFlying(u)&&!u.allowMountains&&this.map.terrain[this.cellIndex(u.x,u.y)]===0;}
   isFlying(u){return !!STATS[u.type].air&&u.flying!==false;}
   canEngage(u,e){if(STATS[u.type].airOnly)return this.isFlying(u)&&this.isFlying(e);return !this.isFlying(e)||this.isFlying(u)||!!STATS[u.type].antiAir;}
   toggleFlight(ids,point){
@@ -28,7 +92,7 @@ export class Game{
       const landing=this.isFlying(u);
       this.command([u.id],'move',point);
       if(landing){u.landing=nearestFree(this.map,this.buildings,point.x,point.y);u.goal=u.landing;}
-      else{u.flying=true;u.path=[];u.buildingId=null;u.goal={...point};if(u.x<5||u.x>W-5||u.y<5||u.y>H-5)u.facing=Math.atan2(H/2-u.y,W/2-u.x);}
+      else{u.flying=true;u.path=[];u.buildingId=null;u.goal={...point};if(u.x<5||u.x>this.map.width-5||u.y<5||u.y>this.map.height-5)u.facing=Math.atan2(this.map.height/2-u.y,this.map.width/2-u.x);}
     }
     this.revision++;this.updateVision();
   }
@@ -45,32 +109,32 @@ export class Game{
   updateVision(){
     this.visionVersion++;
     for(const v of this.visible)v.fill(0);
-    const circle=(team,x,y,r)=>{for(let yy=Math.max(0,Math.floor(y-r));yy<=Math.min(H-1,Math.ceil(y+r));yy++)for(let xx=Math.max(0,Math.floor(x-r));xx<=Math.min(W-1,Math.ceil(x+r));xx++)if((xx+.5-x)**2+(yy+.5-y)**2<=r*r)this.visible[team][yy*W+xx]=1;};
+    const circle=(team,x,y,r)=>{for(let yy=Math.max(0,Math.floor(y-r));yy<=Math.min(this.map.height-1,Math.ceil(y+r));yy++)for(let xx=Math.max(0,Math.floor(x-r));xx<=Math.min(this.map.width-1,Math.ceil(x+r));xx++)if((xx+.5-x)**2+(yy+.5-y)**2<=r*r)this.visible[team][yy*this.map.width+xx]=1;};
     // 陆地视野按视线消耗：以侦测距离为预算，每进入一格消耗 1/侦测系数（森林贵、山地省）
     const sight=(team,x,y,budget)=>{
       const vis=this.visible[team],terrain=this.map.terrain;
-      const dist=new Float64Array(W*H);dist.fill(Infinity);
-      const ox=Math.max(0,Math.min(W-1,Math.floor(x))),oy=Math.max(0,Math.min(H-1,Math.floor(y)));
+      const dist=new Float64Array(this.map.width*this.map.height);dist.fill(Infinity);
+      const ox=Math.max(0,Math.min(this.map.width-1,Math.floor(x))),oy=Math.max(0,Math.min(this.map.height-1,Math.floor(y)));
       const heap=[[0,ox,oy]],push=n=>{heap.push(n);let i=heap.length-1;while(i){const p=(i-1)>>1;if(heap[p][0]<=n[0])break;heap[i]=heap[p];i=p;}heap[i]=n;},pop=()=>{const t=heap[0],l=heap.pop();if(heap.length){let i=0;while(true){let m=i,a=i*2+1,b=a+1;if(a<heap.length&&heap[a][0]<heap[m][0])m=a;if(b<heap.length&&heap[b][0]<heap[m][0])m=b;if(m===i)break;heap[i]=heap[m];i=m;}heap[i]=l;}return t;};
-      dist[oy*W+ox]=0;vis[oy*W+ox]=1;
+      dist[oy*this.map.width+ox]=0;vis[oy*this.map.width+ox]=1;
       while(heap.length){
         const [c,x,y]=pop();
         for(let sy=-1;sy<=1;sy++)for(let sx=-1;sx<=1;sx++){
           if(!sx&&!sy)continue;const nx=x+sx,ny=y+sy;
-          if(nx<0||ny<0||nx>=W||ny>=H)continue;
-          const nc=c+(sx&&sy?Math.SQRT2:1)*TERRAIN_COST[terrain[ny*W+nx]];
-          if(nc<=budget&&nc<dist[ny*W+nx]){dist[ny*W+nx]=nc;vis[ny*W+nx]=1;push([nc,nx,ny]);}
+          if(nx<0||ny<0||nx>=this.map.width||ny>=this.map.height)continue;
+          const nc=c+(sx&&sy?Math.SQRT2:1)*TERRAIN_COST[terrain[ny*this.map.width+nx]];
+          if(nc<=budget&&nc<dist[ny*this.map.width+nx]){dist[ny*this.map.width+nx]=nc;vis[ny*this.map.width+nx]=1;push([nc,nx,ny]);}
         }
       }
     };
     for(const e of this.entities()){if(e.building&&e.constructionPending)continue;const r=this.detectionRange(e);if(this.isFlying(e))circle(e.team,e.x,e.y,r);else sight(e.team,e.x,e.y,r);if(e.revealUntil>this.time)circle(1-e.team,e.x,e.y,2);}
-    for(let t=0;t<2;t++)for(let i=0;i<W*H;i++)if(this.visible[t][i])this.explored[t][i]=1;
+    for(let t=0;t<2;t++)for(let i=0;i<this.map.width*this.map.height;i++)if(this.visible[t][i])this.explored[t][i]=1;
   }
-  command(ids,kind,point,targetId=null,append=false,allowMountains=false){
+  command(ids,kind,point,targetId=null,append=false,allowMountains=false,team=0){
     if(this.result)return;this.revision++;
-    const selected=this.units.filter(u=>ids.includes(u.id)&&u.team===0&&u.hp>0),cols=Math.ceil(Math.sqrt(selected.length));
+    const selected=this.units.filter(u=>ids.includes(u.id)&&u.team===team&&u.hp>0),cols=Math.ceil(Math.sqrt(selected.length));
     selected.forEach((u,i)=>{
-      if(STATS[u.type].air&&!this.isFlying(u)&&(kind==='move'||kind==='attack')){u.flying=true;if(u.x<5||u.x>W-5||u.y<5||u.y>H-5)u.facing=Math.atan2(H/2-u.y,W/2-u.x);}
+      if(STATS[u.type].air&&!this.isFlying(u)&&(kind==='move'||kind==='attack')){u.flying=true;if(u.x<5||u.x>this.map.width-5||u.y<5||u.y>this.map.height-5)u.facing=Math.atan2(this.map.height/2-u.y,this.map.width/2-u.x);}
       u.buildingId=null;u.landing=null;u.orbit=null;u.landingEscape=false;
       if(!append)u.allowMountains=allowMountains&&kind==='move';
       const p=kind==='stop'?null:this.isFlying(u)?{x:point.x,y:point.y}:nearestFree(this.map,this.buildings,point.x+(i%cols-(cols-1)/2)*1.2,point.y+(Math.floor(i/cols)-(Math.ceil(selected.length/cols)-1)/2)*1.2,this.avoidsMountains(u));
@@ -82,11 +146,11 @@ export class Game{
       u.waypoints=[];
       u.targetId=null;u.path=[];u.goal=null;u.holdFire=kind==='stop';u.order=kind==='stop'?'hold':kind;u.repath=0;
       if(kind==='stop')return;
-      if(targetId){const target=this.entities().find(e=>e.id===targetId&&e.team!==0&&this.canSee(0,e));if(target&&this.canEngage(u,target))u.targetId=target.id;}
+      if(targetId){const target=this.entities().find(e=>e.id===targetId&&e.team!==team&&this.canSee(team,e));if(target&&this.canEngage(u,target))u.targetId=target.id;}
       if(p){u.goal=p;u.path=this.pathFor(u,p);}
     });
   }
-  placement(type,point){
+  placement(type,point,team=0){
     if(!['base','mine','tower','factory'].includes(type))return {error:'未知建筑'};
     const r=STATS[type].halfSize||2,odd=(r*2)%2===1;
     // 建筑按区块（整格）占地：奇数尺寸中心在区块中心（x.5），偶数尺寸中心在格点上
@@ -97,32 +161,32 @@ export class Game{
       // 矿点为区块：奇数尺寸中心对齐区块中心；偶数尺寸取区块四角中离点击最近的格点为中心
       p=odd?{x:node.x+.5,y:node.y+.5}:{x:Math.abs(node.x+1-point.x)<Math.abs(node.x-point.x)?node.x+1:node.x,y:Math.abs(node.y+1-point.y)<Math.abs(node.y-point.y)?node.y+1:node.y};
     }
-    if(!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<r||p.y<r||p.x>W-r||p.y>H-r)return {...p,error:'建筑不能超出地图'};
+    if(!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<r||p.y<r||p.x>this.map.width-r||p.y>this.map.height-r)return {...p,error:'建筑不能超出地图'};
     const c=buildingCells({type,x:p.x,y:p.y});
     if(this.buildings.some(b=>{if(b.hp<=0)return false;const o=buildingCells(b);return c.x0<=o.x1&&o.x0<=c.x1&&c.y0<=o.y1&&o.y0<=c.y1;}))return {...p,error:'与现有建筑冲突'};
-    for(let y=c.y0;y<=c.y1;y++)for(let x=c.x0;x<=c.x1;x++)if(!this.visible[0][index(x,y)])return {...p,error:'请在己方当前视野内建造'};
+    for(let y=c.y0;y<=c.y1;y++)for(let x=c.x0;x<=c.x1;x++)if(!this.visible[team][this.cellIndex(x,y)])return {...p,error:'请在己方当前视野内建造'};
     const inCells=u=>u.hp>0&&!this.isFlying(u)&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1;
-    if(this.units.some(u=>inCells(u)&&(u.team!==0||STATS[u.type].movable===false||STATS[u.type].air)))return {...p,error:'请先移开占地内的部队'};
+    if(this.units.some(u=>inCells(u)&&(u.team!==team||STATS[u.type].movable===false||STATS[u.type].air)))return {...p,error:'请先移开占地内的部队'};
     return {...p,evict:this.units.some(u=>inCells(u))};
   }
-  build(ids,type,point){
+  build(ids,type,point,team=0){
     if(this.result)return '战局已结束';
-    if(!this.units.some(u=>ids.includes(u.id)&&u.team===0&&u.hp>0))return '请先选择部队';
-    const p=this.placement(type,point);if(p.error)return p.error;
-    const s=STATS[type];if(this.food<s.food||this.ore<s.ore)return '资源不足';
-    const site={...p,hp:s.hp,team:0,type},c=buildingCells(site);
-    const evictees=this.units.filter(u=>u.hp>0&&!this.isFlying(u)&&u.team===0&&STATS[u.type].movable!==false&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1);
+    if(!this.units.some(u=>ids.includes(u.id)&&u.team===team&&u.hp>0))return '请先选择部队';
+    const p=this.placement(type,point,team);if(p.error)return p.error;
+    const s=STATS[type];if(this[team===0?'food':'aiFood']<s.food||this[team===0?'ore':'aiOre']<s.ore)return '资源不足';
+    const site={...p,hp:s.hp,team,type},c=buildingCells(site);
+    const evictees=this.units.filter(u=>u.hp>0&&!this.isFlying(u)&&u.team===team&&STATS[u.type].movable!==false&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1);
     if(!evictees.length){
       const assignments=this.builderAssignments(ids,site);
       if(!assignments.length)return '选中部队无法到达建筑周边';
-      this.food-=s.food;this.ore-=s.ore;const b=this.addBuilding(type,0,p.x,p.y);
+      this[team===0?'food':'aiFood']-=s.food;this[team===0?'ore':'aiOre']-=s.ore;const b=this.addBuilding(type,team,p.x,p.y);
       b.constructionRemaining=s.buildTime||0;b.constructionPending=true;b.activeBuilders=0;
       this.dispatchBuilders(b,assignments);
     }else{
       const list=[...this.buildings,site];
       const dests=evictees.map(u=>{u.allowMountains=true;return {u,target:this.evictTarget(site,u,list)};});
       if(dests.some(d=>!d.target)){for(const d of dests)d.u.allowMountains=false;return '请先移开占地内的部队';}
-      this.food-=s.food;this.ore-=s.ore;const b=this.addBuilding(type,0,p.x,p.y);
+      this[team===0?'food':'aiFood']-=s.food;this[team===0?'ore':'aiOre']-=s.ore;const b=this.addBuilding(type,team,p.x,p.y);
       b.constructionRemaining=s.buildTime||0;b.constructionPending=true;b.awaitingEviction=true;b.activeBuilders=0;b.builderIds=ids;
       for(const {u,target} of dests){u.buildingId=null;u.waypoints=[];u.targetId=null;u.holdFire=false;u.leavingId=b.id;u.order='move';u.goal=target;u.path=this.pathFor(u,target);u.repath=1.5;}
     }
@@ -178,11 +242,15 @@ export class Game{
     if(this.result)return '战局已结束';
     const b=this.buildings.find(b=>b.id===id&&b.team===0&&b.hp>0);
     if(!b)return '请选择己方建筑';
-    b.hp=0;this.releaseBuilders(b);if(b.primary){this.queue=[];this.result='defeat';}
+    b.hp=0;this.releaseBuilders(b);if(b.primary&&this.level!=='defend'){this.queue=[];this.result='defeat';}
+    if(this.level==='defend'&&!this.buildings.some(b=>b.team===0&&b.hp>0))this.result='defeat';
     this.revision++;this.updateVision();return null;
   }
-  // 人口上限：每个己方已完工基地提供 STATS 中标注的人口数（基地为 40），可叠加
-  popCap(){return this.buildings.reduce((n,b)=>n+(b.team===0&&b.hp>0&&!b.constructionPending?STATS[b.type].pop||0:0),0);}
+  // 进攻、防守固定 100 人口；其他模式按已完工且存活的基地叠加。
+  popCap(team=0){
+    if(this.level==='attack'||this.level==='defend')return 100;
+    return this.buildings.reduce((n,b)=>n+(b.team===team&&b.hp>0&&!b.constructionPending?STATS[b.type].pop||0:0),0);
+  }
   train(type,baseId=null){
     if(!['shield','archer','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
     const base=this.buildings.find(b=>b.type==='base'&&b.team===0&&b.hp>0&&!b.constructionPending&&(baseId===null||b.id===baseId));
@@ -190,6 +258,22 @@ export class Game{
     const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=this.popCap())return '人口已达上限';
     if(this.queue.length>=8)return '训练队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足，基地正在持续生产';
     this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:s.trainTime||3,baseId:base.id});this.revision++;return null;
+  }
+  // AI 训练：与玩家相同的费用、人口与队列规则，使用 AI 自己的资源
+  aiTrain(type){
+    if(!['shield','archer','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
+    const base=this.buildings.find(b=>b.type==='base'&&b.team===1&&b.hp>0&&!b.constructionPending);
+    if(!base)return 'AI 无可用基地';
+    const s=STATS[type];
+    const cap=this.popCap(1);
+    if(this.units.filter(u=>u.team===1&&u.hp>0).length+this.aiQueue.length>=cap)return '人口已达上限';
+    if(this.aiQueue.length>=8)return '训练队列已满';
+    if(this.aiFood<s.food||this.aiOre<s.ore)return '资源不足';
+    this.aiFood-=s.food;this.aiOre-=s.ore;this.aiQueue.push({type,remaining:s.trainTime||3,baseId:base.id});this.revision++;return null;
+  }
+  foodRate(b){
+    const c=buildingCells(b);
+    return (this.map.foodPoints||[]).some(n=>n.x>=c.x0&&n.x<=c.x1&&n.y>=c.y0&&n.y<=c.y1)?6:3;
   }
   step(dt){
     if(this.result)return;this.revision++;this.time+=dt;
@@ -202,7 +286,7 @@ export class Game{
         const c=buildingCells(b);
         const any=this.units.some(u=>u.hp>0&&!this.isFlying(u)&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1);
         if(any){
-          for(const u of this.units.filter(u=>u.hp>0&&!this.isFlying(u)&&u.team===0&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1)){
+          for(const u of this.units.filter(u=>u.hp>0&&!this.isFlying(u)&&u.team===b.team&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1)){
             u.leavingId=b.id;
             if(u.order!=='move'||!u.path.length){
               const target=this.evictTarget(b,u);
@@ -226,8 +310,8 @@ export class Game{
           if(b.constructionRemaining<=1e-8){b.constructionRemaining=0;b.constructionPending=false;b.activeBuilders=0;productionTime=Math.max(0,dt-finishTime);this.releaseBuilders(b);}
         }
       }
-      if(b.type==='mine'&&b.team===0)this.ore+=5*productionTime;
-      if(b.type==='factory'&&b.team===0)this.food+=3*productionTime;
+      if(b.type==='mine'){if(b.team===0)this.ore+=5*productionTime;else this.aiOre+=5*productionTime;}
+      if(b.type==='factory'){const amount=this.foodRate(b)*productionTime;if(b.team===0)this.food+=amount;else this.aiFood+=amount;}
       // 基地本身不生产任何资源，食物与矿产均需依赖采矿场 / 食物厂。
       if(b.type==='base'&&productionTime>0){
         const s=STATS.base;
@@ -238,6 +322,9 @@ export class Game{
     }
     this.queue=this.queue.filter(q=>this.buildings.some(b=>b.id===q.baseId&&b.hp>0));
     if(this.queue.length){this.queue[0].remaining-=dt;if(this.queue[0].remaining<=0){const q=this.queue.shift(),base=this.buildings.find(b=>b.id===q.baseId);const n=this.units.filter(u=>u.team===0).length;this.addUnit(q.type,0,base.x+3+n%3,base.y+3+Math.floor(n%9/3));}}
+    this.aiQueue=this.aiQueue.filter(q=>this.buildings.some(b=>b.id===q.baseId&&b.hp>0));
+    if(this.aiQueue.length){this.aiQueue[0].remaining-=dt;if(this.aiQueue[0].remaining<=0){const q=this.aiQueue.shift(),base=this.buildings.find(b=>b.id===q.baseId);const n=this.units.filter(u=>u.team===1).length;const u=this.addUnit(q.type,1,base.x-3-n%3,base.y+3+Math.floor(n%9/3));u.home={x:u.x,y:u.y};u.role=this.level==='balanced'?'army':'guard';}}
+    if(this.ai)this.ai.update(this,dt);
     this.visionTimer-=dt;if(this.visionTimer<=0){this.updateVision();this.visionTimer=.15;}
     const entities=this.entities();
     for(const u of this.units){
@@ -274,7 +361,7 @@ export class Game{
         }
         if(u.repath<=0){u.path=this.pathFor(u,target);u.repath=.8;}
       }else{
-        if(u.role==='guard'&&distance(u,u.home)>1){if(u.repath<=0){u.path=this.pathFor(u,u.home);u.repath=1;}}
+        if(u.role==='guard'&&u.order!=='move'&&distance(u,u.home)>1){if(u.repath<=0){u.path=this.pathFor(u,u.home);u.repath=1;}}
         else if(u.role==='patrol'){
           const p=this.map.patrol[u.patrolIndex];if(distance(u,p)<2)u.patrolIndex=(u.patrolIndex+1)%this.map.patrol.length;
           if(!u.path.length||u.repath<=0){u.path=this.pathFor(u,this.map.patrol[u.patrolIndex]);u.repath=2;}
@@ -294,7 +381,13 @@ export class Game{
     for(const p of this.projectiles){const target=entities.find(e=>e.id===p.targetId&&e.hp>0);if(!target){p.life=0;continue;}const d=distance(p,target),step=22*dt;p.life-=dt;if(d<=step){p.x=target.x;p.y=target.y;this.damage(target,p.damage);this.effects.push({x:p.x,y:p.y,team:p.team,kind:'hit',life:.3,maxLife:.3});p.life=0;}else{p.x+=(target.x-p.x)/d*step;p.y+=(target.y-p.y)/d*step;}}
     this.projectiles=this.projectiles.filter(p=>p.life>0);this.effects.forEach(e=>e.life-=dt);this.effects=this.effects.filter(e=>e.life>0);
     this.units=this.units.filter(u=>u.hp>0);
-    if(this.buildings.find(b=>b.team===0).hp<=0)this.result='defeat';else if(this.buildings.filter(b=>b.team===1).every(b=>b.hp<=0))this.result='victory';
+    const primary=b=>this.buildings.find(x=>x.team===b&&x.primary);
+    if(this.level==='defend'){
+      if(!this.buildings.some(b=>b.team===0&&b.hp>0))this.result='defeat';
+      else if(this.defense.wave===2&&!this.units.some(u=>u.team===1&&u.hp>0))this.result='victory';
+    }
+    else if(primary(0).hp<=0)this.result='defeat';
+    else if(this.buildings.filter(b=>b.team===1).every(b=>b.hp<=0))this.result='victory';
   }
   stepFlight(u,dt,entities){
     const s=STATS[u.type],r=s.orbitRadius;
@@ -322,16 +415,16 @@ export class Game{
       }else{
         if(!u.orbit)u.orbit={x:u.x-Math.sin(u.facing)*r,y:u.y+Math.cos(u.facing)*r};
         const center=u.goal||u.orbit;
-        const cx=Math.max(r+1,Math.min(W-r-1,center.x)),cy=Math.max(r+1,Math.min(H-r-1,center.y));
+        const cx=Math.max(r+1,Math.min(this.map.width-r-1,center.x)),cy=Math.max(r+1,Math.min(this.map.height-r-1,center.y));
         const dx=u.x-cx,dy=u.y-cy,d=Math.hypot(dx,dy);
         desired=Math.atan2(dy,dx)+Math.PI/2+s.speed*h/Math.max(d,.5)+Math.atan((d-r)/(r*0.5));
       }
       // 提前朝地图内部转弯，不通过夹紧位置或瞬间掉头破坏曲率约束。
       const margin=s.minTurnRadius*2+1;
       const landingAligned=u.landing&&Math.abs(angleDiff(Math.atan2(u.landing.y-u.y,u.landing.x-u.x)-u.facing))<.4;
-      if(!landingAligned&&((u.x<margin&&Math.cos(u.facing)<0)||(u.x>W-margin&&Math.cos(u.facing)>0)||(u.y<margin&&Math.sin(u.facing)<0)||(u.y>H-margin&&Math.sin(u.facing)>0)))u.boundaryReturn=true;
-      if(landingAligned||(u.x>margin&&u.x<W-margin&&u.y>margin&&u.y<H-margin))u.boundaryReturn=false;
-      if(u.boundaryReturn)desired=Math.atan2(H/2-u.y,W/2-u.x);
+      if(!landingAligned&&((u.x<margin&&Math.cos(u.facing)<0)||(u.x>this.map.width-margin&&Math.cos(u.facing)>0)||(u.y<margin&&Math.sin(u.facing)<0)||(u.y>this.map.height-margin&&Math.sin(u.facing)>0)))u.boundaryReturn=true;
+      if(landingAligned||(u.x>margin&&u.x<this.map.width-margin&&u.y>margin&&u.y<this.map.height-margin))u.boundaryReturn=false;
+      if(u.boundaryReturn)desired=Math.atan2(this.map.height/2-u.y,this.map.width/2-u.x);
       const length=s.speed*h,limit=length/s.minTurnRadius,turn=Math.max(-limit,Math.min(limit,angleDiff(desired-u.facing)));
       const heading=u.facing;
       if(Math.abs(turn)<1e-9){u.x+=Math.cos(heading)*length;u.y+=Math.sin(heading)*length;}
@@ -347,9 +440,9 @@ export class Game{
   move(u,amount){
     if(STATS[u.type].air&&!this.isFlying(u))return;
     const buildings=u.leavingId!=null?this.buildings.filter(b=>b.id!==u.leavingId):this.buildings;
-    const wasInMountain=this.map.terrain[index(u.x,u.y)]===1;
+    const wasInSlow=this.map.terrain[this.cellIndex(u.x,u.y)]!==0;
     while(u.path.length&&amount>0){const p=u.path[0],d=distance(u,p);if(!walkable(this.map,buildings,Math.floor(p.x),Math.floor(p.y),this.avoidsMountains(u))){u.path=[];u.repath=0;return;}u.facing=Math.atan2(p.y-u.y,p.x-u.x);if(d<=amount){u.x=p.x;u.y=p.y;u.path.shift();amount-=d;}else{u.x+=(p.x-u.x)/d*amount;u.y+=(p.y-u.y)/d*amount;amount=0;}}
-    if(wasInMountain&&this.avoidsMountains(u)){u.path=[];u.repath=0;}
+    if(wasInSlow&&this.avoidsMountains(u)){u.path=[];u.repath=0;}
   }
   separate(dt){
     // 待机（无目标、无路径、未受令）的单位彼此保持更宽松的默认间距，行动或交战时收缩为轻微分离
@@ -362,5 +455,5 @@ export class Game{
       for(const [u,sign]of [[a,1],[b,-1]]){if(STATS[u.type].air)continue;const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
     }
   }
-  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,popCap:this.popCap(),queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}
+  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,level:this.level,defense:this.defense?{...this.defense,sizes:[...this.defense.sizes]}:null,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,popCap:this.popCap(),queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}
 }

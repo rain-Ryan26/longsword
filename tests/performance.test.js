@@ -28,6 +28,17 @@ test('静止画面不重绘，镜头变化复用迷雾及小地图缓存',()=>{
   assert.equal(f.calls.some(c=>c.name==='putImageData'),false);
 });
 
+test('切换大地图重建迷雾尺寸，小地图坐标与观察窗口同步匹配',()=>{
+  const f=fixture();f.draw();Object.assign(f.game,new Game('balanced'));f.draw();
+  assert.equal(f.renderer.fogCanvas.width,128);assert.equal(f.renderer.fogCanvas.height,88);
+  f.renderer.camera={x:120,y:84,zoom:13};f.renderer.clamp();assert.equal(f.renderer.camera.x,120);
+  let message;const host=new SnapshotHost(m=>message=structuredClone(m),'host'),receiver=new SnapshotReceiver('large');
+  host.receive(receiver.message(),0);host.publish(f.game.snapshot(),false,1,0);receiver.receive(message);
+  assert.equal(receiver.state.map.width,128);assert.equal(receiver.state.visible[1].length,128*88);
+  assert.equal(receiver.state.map.foodPoints.length,9);
+  Object.assign(f.game,new Game());f.draw();assert.equal(f.renderer.fogCanvas.width,96);assert.equal(f.renderer.fogCanvas.height,64);
+});
+
 test('视野原地修改、切换阵营、地图替换使缓存更新',()=>{
   const f=fixture();f.draw();
   f.game.updateVision();f.calls.length=0;f.draw();assert.equal(f.calls.filter(c=>c.name==='putImageData').length,1);
