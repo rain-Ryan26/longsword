@@ -78,7 +78,6 @@ canvas.addEventListener('pointerdown',e=>{if(!state)return;const p=local(e);if(e
   const flyingBefore=game.units.filter(u=>selected.has(u.id)&&game.isFlying(u)).map(u=>u.id);
   if(doubleClick&&inMap)game.toggleFlight(flyingBefore.filter(id=>lastRightClick.flyingIds.includes(id)),world);
   issue(p,false,e.shiftKey,!!doubleClick&&mountain,!!doubleClick);
-  if(doubleClick&&inMap&&game.units.some(u=>selected.has(u.id)&&STATS[u.type].air))toast('信鸽已切换起飞 / 降落指令');
   lastRightClick=!e.shiftKey&&inMap&&!doubleClick?{x:p.x,y:p.y,time:now,flyingIds:flyingBefore}:null;
   return;
 }if(e.button===0){if(buildType){const evict=!!buildPreview?.evict;const error=game.build([...selected],buildType,renderer.world(p.x,p.y));toast(error||(evict?'区域内单位将自动让位，随后开始施工':`已派遣最多 ${STATS[buildType].maxBuilders||4} 名选中部队前往施工`));if(!error)closeBuild();else previewAt(p);sendSnapshot();updateHud();return;}if(attackMode){issue(p,true);return;}drag={kind:'select',sx:p.x,sy:p.y,x:p.x,y:p.y,shift:e.shiftKey};canvas.setPointerCapture(e.pointerId);}});

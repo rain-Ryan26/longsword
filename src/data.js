@@ -1,5 +1,6 @@
 export const W = 96, H = 64;
 // 地形编号：0 平地、1 山地、2 森林。
+// 侦测系数：陆地视线每经过一格消耗 1/系数 的侦测距离（森林贵、山地省）。
 export const DETECTION_MULTIPLIERS = [1, 1.2, 0.3];
 export const MOVEMENT_MULTIPLIERS = [1, 0.2, 0.6];
 export const STATS = {

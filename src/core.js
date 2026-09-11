@@ -1,9 +1,11 @@
 import {W,H,STATS,createMap,DETECTION_MULTIPLIERS,MOVEMENT_MULTIPLIERS} from './data.js';
 import {findPath,nearestFree,walkable,index,buildingCells} from './pathfinding.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+// 视线消耗系数：陆地视野经过每格时消耗 1/侦测系数 的有效侦测距离
+const TERRAIN_COST=DETECTION_MULTIPLIERS.map(m=>1/m);
 export class Game{
   constructor(){
-    this.map=createMap();this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.time=0;this.nextId=1;this.food=600;this.ore=600;this.queue=[];this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
+    this.map=createMap();this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.time=0;this.nextId=1;this.food=1000;this.ore=1000;this.queue=[];this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
     this.visible=[new Array(W*H).fill(0),new Array(W*H).fill(0)];this.explored=[new Array(W*H).fill(0),new Array(W*H).fill(0)];
     this.addBuilding('base',0,12,32).primary=true;
     this.map.camps.forEach((p,i)=>{this.addBuilding('camp',1,p.x,p.y);for(let n=0;n<7;n++){const u=this.addUnit(n<4?'shield':'archer',1,p.x-6+(n%3)*2,p.y-4+Math.floor(n/3)*3);u.home={x:u.x,y:u.y};u.role='guard';u.camp=i;}});
@@ -15,7 +17,7 @@ export class Game{
   addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],waypoints:[],allowMountains:false,goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0,flying:!!STATS[type].air};if(u.flying&&(u.x<5||u.x>W-5||u.y<5||u.y>H-5))u.facing=Math.atan2(H/2-u.y,W/2-u.x);this.units.push(u);return u;}
   entities(){return [...this.units,...this.buildings].filter(e=>e.hp>0);}
   canSee(team,e){return e.team===team||!!this.visible[team][index(e.x,e.y)];}
-  detectionRange(e){const base=this.isFlying(e)||!('visionGround' in STATS[e.type])?STATS[e.type].vision:STATS[e.type].visionGround;if(this.isFlying(e))return base;return base*(DETECTION_MULTIPLIERS[this.map.terrain[index(e.x,e.y)]]??1);}
+  detectionRange(e){return this.isFlying(e)||!('visionGround' in STATS[e.type])?STATS[e.type].vision:STATS[e.type].visionGround;}
   movementSpeed(u){if(STATS[u.type].air)return this.isFlying(u)?STATS[u.type].speed:0;return STATS[u.type].speed*(MOVEMENT_MULTIPLIERS[this.map.terrain[index(u.x,u.y)]]??1);}
   avoidsMountains(u){return !this.isFlying(u)&&!u.allowMountains&&this.map.terrain[index(u.x,u.y)]!==1;}
   isFlying(u){return !!STATS[u.type].air&&u.flying!==false;}
@@ -43,8 +45,25 @@ export class Game{
   updateVision(){
     this.visionVersion++;
     for(const v of this.visible)v.fill(0);
-    const paint=(team,x,y,r)=>{for(let yy=Math.max(0,Math.floor(y-r));yy<=Math.min(H-1,Math.ceil(y+r));yy++)for(let xx=Math.max(0,Math.floor(x-r));xx<=Math.min(W-1,Math.ceil(x+r));xx++)if((xx+.5-x)**2+(yy+.5-y)**2<=r*r)this.visible[team][yy*W+xx]=1;};
-    for(const e of this.entities()){if(e.building&&e.constructionPending)continue;paint(e.team,e.x,e.y,this.detectionRange(e));if(e.revealUntil>this.time)paint(1-e.team,e.x,e.y,2);}
+    const circle=(team,x,y,r)=>{for(let yy=Math.max(0,Math.floor(y-r));yy<=Math.min(H-1,Math.ceil(y+r));yy++)for(let xx=Math.max(0,Math.floor(x-r));xx<=Math.min(W-1,Math.ceil(x+r));xx++)if((xx+.5-x)**2+(yy+.5-y)**2<=r*r)this.visible[team][yy*W+xx]=1;};
+    // 陆地视野按视线消耗：以侦测距离为预算，每进入一格消耗 1/侦测系数（森林贵、山地省）
+    const sight=(team,x,y,budget)=>{
+      const vis=this.visible[team],terrain=this.map.terrain;
+      const dist=new Float64Array(W*H);dist.fill(Infinity);
+      const ox=Math.max(0,Math.min(W-1,Math.floor(x))),oy=Math.max(0,Math.min(H-1,Math.floor(y)));
+      const heap=[[0,ox,oy]],push=n=>{heap.push(n);let i=heap.length-1;while(i){const p=(i-1)>>1;if(heap[p][0]<=n[0])break;heap[i]=heap[p];i=p;}heap[i]=n;},pop=()=>{const t=heap[0],l=heap.pop();if(heap.length){let i=0;while(true){let m=i,a=i*2+1,b=a+1;if(a<heap.length&&heap[a][0]<heap[m][0])m=a;if(b<heap.length&&heap[b][0]<heap[m][0])m=b;if(m===i)break;heap[i]=heap[m];i=m;}heap[i]=l;}return t;};
+      dist[oy*W+ox]=0;vis[oy*W+ox]=1;
+      while(heap.length){
+        const [c,x,y]=pop();
+        for(let sy=-1;sy<=1;sy++)for(let sx=-1;sx<=1;sx++){
+          if(!sx&&!sy)continue;const nx=x+sx,ny=y+sy;
+          if(nx<0||ny<0||nx>=W||ny>=H)continue;
+          const nc=c+(sx&&sy?Math.SQRT2:1)*TERRAIN_COST[terrain[ny*W+nx]];
+          if(nc<=budget&&nc<dist[ny*W+nx]){dist[ny*W+nx]=nc;vis[ny*W+nx]=1;push([nc,nx,ny]);}
+        }
+      }
+    };
+    for(const e of this.entities()){if(e.building&&e.constructionPending)continue;const r=this.detectionRange(e);if(this.isFlying(e))circle(e.team,e.x,e.y,r);else sight(e.team,e.x,e.y,r);if(e.revealUntil>this.time)circle(1-e.team,e.x,e.y,2);}
     for(let t=0;t<2;t++)for(let i=0;i<W*H;i++)if(this.visible[t][i])this.explored[t][i]=1;
   }
   command(ids,kind,point,targetId=null,append=false,allowMountains=false){
@@ -205,9 +224,9 @@ export class Game{
           if(b.constructionRemaining<=1e-8){b.constructionRemaining=0;b.constructionPending=false;b.activeBuilders=0;productionTime=Math.max(0,dt-finishTime);this.releaseBuilders(b);}
         }
       }
-      if(b.type==='mine'&&b.team===0)this.ore+=2*productionTime;
-      if(b.type==='factory'&&b.team===0)this.food+=2*productionTime;
-      if(b.type==='base'&&b.team===0){this.food+=3*productionTime;this.ore+=2*productionTime;}
+      if(b.type==='mine'&&b.team===0)this.ore+=5*productionTime;
+      if(b.type==='factory'&&b.team===0)this.food+=3*productionTime;
+      // 基地本身不生产任何资源，食物与矿产均需依赖采矿场 / 食物厂。
       if(b.type==='base'&&productionTime>0){
         const s=STATS.base;
         const patients=this.units.filter(u=>u.team===b.team&&u.hp>0&&u.hp<u.maxHp&&!healed.has(u.id)&&distance(u,b)<=s.healRange)
@@ -289,7 +308,7 @@ export class Game{
     for(let remaining=dt;remaining>1e-9;){
       const h=Math.min(remaining,.02);remaining-=h;
       if(u.waypoints.length&&u.goal&&distance(u,u.goal)<.8)u.goal=u.waypoints.shift();
-      let goal=target||u.landing||(u.waypoints.length?u.goal:null),desired;
+      let goal=target||u.landing||(u.waypoints.length?u.goal:(u.goal&&distance(u,u.goal)>r?u.goal:null)),desired;
       if(goal){
         desired=Math.atan2(goal.y-u.y,goal.x-u.x);
         if(u.landing){
@@ -303,7 +322,7 @@ export class Game{
         const center=u.goal||u.orbit;
         const cx=Math.max(r+1,Math.min(W-r-1,center.x)),cy=Math.max(r+1,Math.min(H-r-1,center.y));
         const dx=u.x-cx,dy=u.y-cy,d=Math.hypot(dx,dy);
-        desired=Math.atan2(dy,dx)+Math.PI/2+s.speed*h/r+Math.atan((d-r)/r);
+        desired=Math.atan2(dy,dx)+Math.PI/2+s.speed*h/Math.max(d,.5)+Math.atan((d-r)/(r*0.5));
       }
       // 提前朝地图内部转弯，不通过夹紧位置或瞬间掉头破坏曲率约束。
       const margin=s.minTurnRadius*2+1;
@@ -331,9 +350,13 @@ export class Game{
     if(wasInMountain&&this.avoidsMountains(u)){u.path=[];u.repath=0;}
   }
   separate(dt){
+    // 待机（无目标、无路径、未受令）的单位彼此保持更宽松的默认间距，行动或交战时收缩为轻微分离
+    const atRest=u=>u.targetId==null&&u.path.length===0&&u.order==='idle';
     for(let i=0;i<this.units.length;i++)for(let j=i+1;j<this.units.length;j++){
-      const a=this.units[i],b=this.units[j],d=distance(a,b);if(d>=.85||this.isFlying(a)||this.isFlying(b))continue;
-      const dx=d>.001?(a.x-b.x)/d:1,dy=d>.001?(a.y-b.y)/d:0,k=Math.min((.85-d)*.5,dt*1.5);
+      const a=this.units[i],b=this.units[j];if(this.isFlying(a)||this.isFlying(b))continue;
+      const d=distance(a,b),gap=atRest(a)&&atRest(b)?1.4:.85;
+      if(d>=gap)continue;
+      const dx=d>.001?(a.x-b.x)/d:1,dy=d>.001?(a.y-b.y)/d:0,k=Math.min((gap-d)*.5,dt*1.5);
       for(const [u,sign]of [[a,1],[b,-1]]){if(STATS[u.type].air)continue;const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
     }
   }
