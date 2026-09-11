@@ -1,4 +1,4 @@
-import {W,H,STATS,createMap} from './data.js';
+import {W,H,STATS,createMap,DETECTION_MULTIPLIERS,MOVEMENT_MULTIPLIERS} from './data.js';
 import {findPath,nearestFree,walkable,index} from './pathfinding.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 export class Game{
@@ -12,24 +12,39 @@ export class Game{
     this.updateVision();
   }
   addBuilding(type,team,x,y){const b={id:this.nextId++,type,team,x,y,hp:STATS[type].hp,maxHp:STATS[type].hp,building:true,revealUntil:0};this.buildings.push(b);return b;}
-  addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0};this.units.push(u);return u;}
+  addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],waypoints:[],allowMountains:false,goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0};this.units.push(u);return u;}
   entities(){return [...this.units,...this.buildings].filter(e=>e.hp>0);}
   canSee(team,e){return e.team===team||!!this.visible[team][index(e.x,e.y)];}
+  detectionRange(e){return STATS[e.type].vision*(DETECTION_MULTIPLIERS[this.map.terrain[index(e.x,e.y)]]??1);}
+  movementSpeed(u){return STATS[u.type].speed*(MOVEMENT_MULTIPLIERS[this.map.terrain[index(u.x,u.y)]]??1);}
+  avoidsMountains(u){return !u.allowMountains&&this.map.terrain[index(u.x,u.y)]!==1;}
+  pathFor(u,end){
+    const avoid=this.avoidsMountains(u);
+    if(avoid&&end===u.goal){const p=nearestFree(this.map,this.buildings,end.x,end.y,true);if(p){u.goal=p;end=p;}}
+    return findPath(this.map,this.buildings,u,end,avoid);
+  }
   updateVision(){
     for(const v of this.visible)v.fill(0);
     const paint=(team,x,y,r)=>{for(let yy=Math.max(0,Math.floor(y-r));yy<=Math.min(H-1,Math.ceil(y+r));yy++)for(let xx=Math.max(0,Math.floor(x-r));xx<=Math.min(W-1,Math.ceil(x+r));xx++)if((xx+.5-x)**2+(yy+.5-y)**2<=r*r)this.visible[team][yy*W+xx]=1;};
-    for(const e of this.entities()){paint(e.team,e.x,e.y,STATS[e.type].vision);if(e.revealUntil>this.time)paint(1-e.team,e.x,e.y,2);}
+    for(const e of this.entities()){paint(e.team,e.x,e.y,this.detectionRange(e));if(e.revealUntil>this.time)paint(1-e.team,e.x,e.y,2);}
     for(let t=0;t<2;t++)for(let i=0;i<W*H;i++)if(this.visible[t][i])this.explored[t][i]=1;
   }
-  command(ids,kind,point,targetId=null){
+  command(ids,kind,point,targetId=null,append=false,allowMountains=false){
     if(this.result)return;
     const selected=this.units.filter(u=>ids.includes(u.id)&&u.team===0&&u.hp>0),cols=Math.ceil(Math.sqrt(selected.length));
     selected.forEach((u,i)=>{
+      if(!append)u.allowMountains=allowMountains&&kind==='move';
+      const p=kind==='stop'?null:nearestFree(this.map,this.buildings,point.x+(i%cols-(cols-1)/2)*1.2,point.y+(Math.floor(i/cols)-(Math.ceil(selected.length/cols)-1)/2)*1.2,this.avoidsMountains(u));
+      if(append&&kind==='move'&&u.goal&&p){
+        u.waypoints.push(p);u.order='move';u.holdFire=false;u.targetId=null;
+        u.path=this.pathFor(u,u.goal);u.repath=1.5;
+        return;
+      }
+      u.waypoints=[];
       u.targetId=null;u.path=[];u.goal=null;u.holdFire=kind==='stop';u.order=kind==='stop'?'hold':kind;u.repath=0;
       if(kind==='stop')return;
       if(targetId){const target=this.entities().find(e=>e.id===targetId&&e.team!==0&&this.canSee(0,e));if(target)u.targetId=target.id;}
-      const p=nearestFree(this.map,this.buildings,point.x+(i%cols-(cols-1)/2)*1.2,point.y+(Math.floor(i/cols)-(Math.ceil(selected.length/cols)-1)/2)*1.2);
-      if(p){u.goal=p;u.path=findPath(this.map,this.buildings,u,p);}
+      if(p){u.goal=p;u.path=this.pathFor(u,p);}
     });
   }
   train(type){
@@ -51,7 +66,7 @@ export class Game{
       if(target&&u.role==='patrol'&&distance(u,target)>14)target=null;
       if(!target){u.targetId=null;
         if(u.order!=='move'){
-          const candidates=entities.filter(e=>e.team!==u.team&&e.hp>0&&this.canSee(u.team,e)&&distance(u,e)<=s.vision&&(u.role!=='guard'||(distance(u,u.home)<=11&&distance(e,u.home)<13)));
+          const candidates=entities.filter(e=>e.team!==u.team&&e.hp>0&&this.canSee(u.team,e)&&distance(u,e)<=this.detectionRange(u)&&(u.role!=='guard'||(distance(u,u.home)<=11&&distance(e,u.home)<13)));
           candidates.sort((a,b)=>(distance(u,a)+(a.building?3:0))-(distance(u,b)+(b.building?3:0)));target=candidates[0];if(target)u.targetId=target.id;
         }
       }
@@ -65,16 +80,16 @@ export class Game{
           }
           continue;
         }
-        if(u.repath<=0){u.path=findPath(this.map,this.buildings,u,target);u.repath=.8;}
+        if(u.repath<=0){u.path=this.pathFor(u,target);u.repath=.8;}
       }else{
-        if(u.role==='guard'&&distance(u,u.home)>1){if(u.repath<=0){u.path=findPath(this.map,this.buildings,u,u.home);u.repath=1;}}
+        if(u.role==='guard'&&distance(u,u.home)>1){if(u.repath<=0){u.path=this.pathFor(u,u.home);u.repath=1;}}
         else if(u.role==='patrol'){
           const p=this.map.patrol[u.patrolIndex];if(distance(u,p)<2)u.patrolIndex=(u.patrolIndex+1)%this.map.patrol.length;
-          if(!u.path.length||u.repath<=0){u.path=findPath(this.map,this.buildings,u,this.map.patrol[u.patrolIndex]);u.repath=2;}
-        }else if(u.goal){if(distance(u,u.goal)<.8){u.goal=null;u.path=[];u.order='idle';}else if(!u.path.length||u.repath<=0){u.path=findPath(this.map,this.buildings,u,u.goal);u.repath=1.5;}}
+          if(!u.path.length||u.repath<=0){u.path=this.pathFor(u,this.map.patrol[u.patrolIndex]);u.repath=2;}
+        }else if(u.goal){if(distance(u,u.goal)<.8){u.goal=u.waypoints.shift()||null;u.path=u.goal?this.pathFor(u,u.goal):[];u.order=u.goal?'move':'idle';if(!u.goal)u.allowMountains=false;u.repath=1.5;}else if(!u.path.length||u.repath<=0){u.path=this.pathFor(u,u.goal);u.repath=1.5;}}
         else if(u.targetId===null&&u.order==='idle')u.path=[];
       }
-      this.move(u,s.speed*dt);
+      this.move(u,this.movementSpeed(u)*dt);
     }
     this.separate(dt);
     for(const p of this.projectiles){const target=entities.find(e=>e.id===p.targetId&&e.hp>0);if(!target){p.life=0;continue;}const d=distance(p,target),step=22*dt;p.life-=dt;if(d<=step){p.x=target.x;p.y=target.y;this.damage(target,p.damage);this.effects.push({x:p.x,y:p.y,team:p.team,kind:'hit',life:.3,maxLife:.3});p.life=0;}else{p.x+=(target.x-p.x)/d*step;p.y+=(target.y-p.y)/d*step;}}
@@ -84,13 +99,15 @@ export class Game{
   }
   damage(e,amount){e.hp=Math.max(0,e.hp-Math.max(1,amount-STATS[e.type].armor));}
   move(u,amount){
-    while(u.path.length&&amount>0){const p=u.path[0],d=distance(u,p);if(!walkable(this.map,this.buildings,Math.floor(p.x),Math.floor(p.y))){u.path=[];return;}u.facing=Math.atan2(p.y-u.y,p.x-u.x);if(d<=amount){u.x=p.x;u.y=p.y;u.path.shift();amount-=d;}else{u.x+=(p.x-u.x)/d*amount;u.y+=(p.y-u.y)/d*amount;amount=0;}}
+    const wasInMountain=this.map.terrain[index(u.x,u.y)]===1;
+    while(u.path.length&&amount>0){const p=u.path[0],d=distance(u,p);if(!walkable(this.map,this.buildings,Math.floor(p.x),Math.floor(p.y),this.avoidsMountains(u))){u.path=[];u.repath=0;return;}u.facing=Math.atan2(p.y-u.y,p.x-u.x);if(d<=amount){u.x=p.x;u.y=p.y;u.path.shift();amount-=d;}else{u.x+=(p.x-u.x)/d*amount;u.y+=(p.y-u.y)/d*amount;amount=0;}}
+    if(wasInMountain&&this.avoidsMountains(u)){u.path=[];u.repath=0;}
   }
   separate(dt){
     for(let i=0;i<this.units.length;i++)for(let j=i+1;j<this.units.length;j++){
       const a=this.units[i],b=this.units[j],d=distance(a,b);if(d>=.85)continue;
       const dx=d>.001?(a.x-b.x)/d:1,dy=d>.001?(a.y-b.y)/d:0,k=Math.min((.85-d)*.5,dt*1.5);
-      for(const [u,sign]of [[a,1],[b,-1]]){const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y))){u.x=x;u.y=y;}}
+      for(const [u,sign]of [[a,1],[b,-1]]){const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
     }
   }
   snapshot(){return {map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}

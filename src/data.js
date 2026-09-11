@@ -1,4 +1,7 @@
 export const W = 96, H = 64;
+// 地形编号：0 平地、1 山地、2 森林。
+export const DETECTION_MULTIPLIERS = [1, 1.2, 0.3];
+export const MOVEMENT_MULTIPLIERS = [1, 0.2, 0.6];
 export const STATS = {
   shield:{name:'盾兵',hp:150,armor:5,damage:18,cooldown:.85,range:1.5,speed:3.2,vision:10,food:35,ore:20},
   archer:{name:'弓箭兵',hp:75,armor:1,damage:14,cooldown:1.2,range:8,speed:3.5,vision:12,food:40,ore:15},

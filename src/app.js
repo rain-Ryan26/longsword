@@ -7,12 +7,12 @@ const session=params.get('session')||crypto.randomUUID();
 if(!params.has('session')){params.set('session',session);history.replaceState(null,'',`?${params}`);}
 const channel=new BroadcastChannel(`longsword-${session}`),game=observer?null:new Game();
 const controlGroups=new Map();
-let lastUnitClick=null;
+let lastUnitClick=null,lastRightClick=null;
 let state=game?.snapshot(),selected=new Set(),view=observer?1:0,attackMode=false,drag=null,marker=null,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer;
 const renderer=new Renderer($('game'),$('minimap'));renderer.resize();if(observer)renderer.camera={x:W/2,y:H/2,zoom:Math.max(5,Math.min(renderer.width/W,renderer.height/H)*.88)};$('perspective').value=view;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),2600);}
 function setAttack(on){attackMode=on;$('game').style.cursor=on?'crosshair':'default';$('mode-hint').textContent=observer?'观察窗口 · 滚轮缩放 · 中键拖动':on?'攻击移动：左键指定位置 · Esc 取消':'左键选择 · 右键移动';}
-function syncView(){view=Number($('perspective').value);$('view-name').textContent=['玩家视角','全局视角','BOT 视角'][view];}
+function syncView(){lastRightClick=null;view=Number($('perspective').value);$('view-name').textContent=['玩家视角','全局视角','BOT 视角'][view];}
 $('perspective').addEventListener('input',syncView);syncView();
 function sendSnapshot(){if(game)channel.postMessage({type:'state',state:game.snapshot(),paused,speed});}
 channel.onmessage=event=>{const msg=event.data;if(observer&&msg.type==='state'){state=msg.state;paused=msg.paused;speed=msg.speed;lastReceived=performance.now();$('connection').hidden=true;}else if(!observer&&msg.type==='hello')sendSnapshot();};
@@ -21,16 +21,23 @@ $('observer').onclick=()=>{const url=new URL(location.href);url.searchParams.set
 function togglePause(){if(observer)return;paused=!paused;acc=0;last=performance.now();sendSnapshot();updateHud();}
 $('pause').onclick=togglePause;
 $('speed').onclick=()=>{speed=speed===1?2:1;sendSnapshot();updateHud();};
-function restart(){if(observer)return;Object.assign(game,new Game());selected.clear();controlGroups.clear();lastUnitClick=null;paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera={x:25,y:32,zoom:13};setAttack(false);sendSnapshot();updateHud();toast('新行动开始');}
+function restart(){if(observer)return;Object.assign(game,new Game());selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera={x:25,y:32,zoom:13};setAttack(false);sendSnapshot();updateHud();toast('新行动开始');}
 $('restart').onclick=restart;$('again').onclick=restart;
 function stop(){if(observer)return;game.command([...selected],'stop');setAttack(false);toast(selected.size?'已停止移动并停火':'请先选择部队');}
 for(const type of ['shield','archer'])$('train-'+type).onclick=()=>{const error=game.train(type);toast(error||`${STATS[type].name}已加入训练队列`);updateHud();};
 function local(event){const rect=$('game').getBoundingClientRect();return {x:event.clientX-rect.left,y:event.clientY-rect.top};}
 function visibleToView(e){const team=view===2?1:0;return view===1||e.team===team||state.visible[team][Math.floor(e.y)*W+Math.floor(e.x)];}
-function issue(p,attack){lastUnitClick=null;if(!selected.size){toast('请先选择部队');setAttack(false);return;}const world=renderer.world(p.x,p.y);if(world.x<0||world.y<0||world.x>=W||world.y>=H){toast('请在地图范围内下达指令');return;}const target=game.entities().find(e=>e.team===1&&game.canSee(0,e)&&Math.hypot(e.x-world.x,e.y-world.y)<(e.building?2:1));game.command([...selected],attack?'attack':target?'attack':'move',world,target?.id);marker={...world,attack:attack||!!target,until:performance.now()+1000};setAttack(false);}
+function issue(p,attack,append=false,allowMountains=false){lastUnitClick=null;if(!selected.size){toast('请先选择部队');setAttack(false);return;}const world=renderer.world(p.x,p.y);if(world.x<0||world.y<0||world.x>=W||world.y>=H){toast('请在地图范围内下达指令');return;}const target=append||allowMountains?null:game.entities().find(e=>e.team===1&&game.canSee(0,e)&&Math.hypot(e.x-world.x,e.y-world.y)<(e.building?2:1));game.command([...selected],attack?'attack':target?'attack':'move',world,target?.id,append,allowMountains);if(allowMountains)toast('本次路线允许穿越山地');else if(append)toast('已追加移动路径点');marker={...world,attack:attack||!!target,until:performance.now()+1000};setAttack(false);}
 const canvas=$('game');
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
-canvas.addEventListener('pointerdown',e=>{if(!state)return;const p=local(e);if(e.button===1){e.preventDefault();drag={kind:'pan',sx:p.x,sy:p.y,x:p.x,y:p.y,cx:renderer.camera.x,cy:renderer.camera.y};canvas.setPointerCapture(e.pointerId);return;}if(observer)return;if(e.button===2){e.preventDefault();issue(p,false);return;}if(e.button===0){if(attackMode){issue(p,true);return;}drag={kind:'select',sx:p.x,sy:p.y,x:p.x,y:p.y,shift:e.shiftKey};canvas.setPointerCapture(e.pointerId);}});
+canvas.addEventListener('pointerdown',e=>{if(!state)return;const p=local(e);if(e.button!==2)lastRightClick=null;if(e.button===1){e.preventDefault();drag={kind:'pan',sx:p.x,sy:p.y,x:p.x,y:p.y,cx:renderer.camera.x,cy:renderer.camera.y};canvas.setPointerCapture(e.pointerId);return;}if(observer)return;if(e.button===2){
+  e.preventDefault();const world=renderer.world(p.x,p.y),now=performance.now();
+  const mountain=world.x>=0&&world.x<W&&world.y>=0&&world.y<H&&state.map.terrain[Math.floor(world.y)*W+Math.floor(world.x)]===1;
+  const doubleClick=!e.shiftKey&&mountain&&selected.size>0&&lastRightClick&&now-lastRightClick.time<350&&Math.hypot(p.x-lastRightClick.x,p.y-lastRightClick.y)<6;
+  issue(p,false,e.shiftKey,!!doubleClick);
+  lastRightClick=!e.shiftKey&&mountain&&!doubleClick?{x:p.x,y:p.y,time:now}:null;
+  return;
+}if(e.button===0){if(attackMode){issue(p,true);return;}drag={kind:'select',sx:p.x,sy:p.y,x:p.x,y:p.y,shift:e.shiftKey};canvas.setPointerCapture(e.pointerId);}});
 canvas.addEventListener('pointermove',e=>{if(!drag)return;const p=local(e);drag.x=p.x;drag.y=p.y;if(drag.kind==='pan'){renderer.camera.x=drag.cx-(p.x-drag.sx)/renderer.camera.zoom;renderer.camera.y=drag.cy-(p.y-drag.sy)/renderer.camera.zoom;renderer.clamp();}});
 canvas.addEventListener('pointerup',e=>{if(!drag)return;if(drag.kind==='select'){
   if(!drag.shift)selected.clear();const click=Math.hypot(drag.x-drag.sx,drag.y-drag.sy)<5;
@@ -55,9 +62,10 @@ canvas.addEventListener('pointerup',e=>{if(!drag)return;if(drag.kind==='select')
   updateHud();
 }drag=null;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);});
 canvas.addEventListener('pointercancel',()=>drag=null);
-canvas.addEventListener('wheel',e=>{e.preventDefault();const p=local(e);renderer.zoomAt(p.x,p.y,Math.exp(-e.deltaY*.001));},{passive:false});
-$('minimap').addEventListener('pointerdown',e=>{const r=$('minimap').getBoundingClientRect();renderer.camera.x=(e.clientX-r.left)/r.width*W;renderer.camera.y=(e.clientY-r.top)/r.height*H;renderer.clamp();});
+canvas.addEventListener('wheel',e=>{lastRightClick=null;e.preventDefault();const p=local(e);renderer.zoomAt(p.x,p.y,Math.exp(-e.deltaY*.001));},{passive:false});
+$('minimap').addEventListener('pointerdown',e=>{lastRightClick=null;const r=$('minimap').getBoundingClientRect();renderer.camera.x=(e.clientX-r.left)/r.width*W;renderer.camera.y=(e.clientY-r.top)/r.height*H;renderer.clamp();});
 window.addEventListener('keydown',e=>{
+  lastRightClick=null;
   if(e.target.matches('input, textarea, select')||e.target.isContentEditable)return;
   const key=e.key.toLowerCase();
   if(/^[0-9]$/.test(key)&&!e.altKey&&!e.metaKey&&!e.shiftKey){
@@ -81,7 +89,7 @@ window.addEventListener('keydown',e=>{
   if(key==='a'){e.preventDefault();if(selected.size)setAttack(true);else toast('请先选择部队');}
   if(key==='s'){e.preventDefault();stop();}
 });
-window.addEventListener('blur',()=>{drag=null;lastUnitClick=null;});
+window.addEventListener('blur',()=>{drag=null;lastUnitClick=null;lastRightClick=null;});
 function updateHud(){
   if(!state)return;if(game)state=game.snapshot();
   for(const id of selected)if(!state.units.some(u=>u.id===id))selected.delete(id);
@@ -97,4 +105,15 @@ function updateHud(){
 }
 // Simulation uses a timer so an observer can remain foreground while the host is hidden.
 setInterval(()=>{const now=performance.now(),elapsed=Math.min((now-last)/1000,1);last=now;if(game){if(!paused&&!game.result){acc+=elapsed*speed;let steps=0;while(acc>=.05&&steps++<40){game.step(.05);acc-=.05;}}else acc=0;state=game.snapshot();if(now-lastSnapshot>=100){sendSnapshot();lastSnapshot=now;}}else if(now-lastReceived>3000){$('connection').hidden=false;$('connection').textContent=lastReceived?'主窗口未响应，请保持主窗口打开。':'等待主窗口的战局数据…';}if(now-lastHud>=150){updateHud();lastHud=now;}},50);
-function frame(){if(state)renderer.draw(state,view,selected,drag,marker);requestAnimationFrame(frame);}requestAnimationFrame(frame);updateHud();if(!observer)toast('框选蓝色部队，按 A 后点击目的地。');
+const frameInterval=1000/120;
+let lastFrame=null;
+function frame(now){
+  const elapsed=lastFrame===null?frameInterval:now-lastFrame;
+  if(elapsed>=frameInterval-.001){
+    if(state)renderer.draw(state,view,selected,drag,marker);
+    // Preserve the remainder without replaying frames after a slow or hidden tab.
+    lastFrame=now-Math.max(0,elapsed-Math.floor((elapsed+.001)/frameInterval)*frameInterval);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);updateHud();if(!observer)toast('框选蓝色部队，按 A 后点击目的地。');

@@ -32,7 +32,7 @@ export class Renderer{
     }
     for(const u of state.units){
       if(!all&&u.team!==team&&!visible[Math.floor(u.y)*W+Math.floor(u.x)])continue;
-      const chosen=selected.has(u.id);if(chosen&&u.path.length){c.strokeStyle='#b4d6a94a';c.lineWidth=.08;c.setLineDash([.3,.3]);c.beginPath();c.moveTo(u.x,u.y);for(const p of u.path)c.lineTo(p.x,p.y);c.stroke();c.setLineDash([]);}
+      const chosen=selected.has(u.id);if(chosen&&u.path.length){c.strokeStyle='#b4d6a94a';c.lineWidth=.08;c.setLineDash([.3,.3]);c.beginPath();c.moveTo(u.x,u.y);for(const p of u.path)c.lineTo(p.x,p.y);for(const p of (u.waypoints||[]))c.lineTo(p.x,p.y);c.stroke();c.setLineDash([]);}
       c.save();c.translate(u.x,u.y);c.fillStyle='#07161166';c.beginPath();c.ellipse(.15,.3,.62,.4,0,0,Math.PI*2);c.fill();
       if(chosen){c.strokeStyle='#e0ebac';c.lineWidth=.12;c.beginPath();c.arc(0,0,.77,0,Math.PI*2);c.stroke();}
       c.fillStyle=u.team===0?'#2c626c':'#8a513d';c.strokeStyle=TEAM[u.team];c.lineWidth=.12;c.beginPath();c.arc(0,0,.5,0,Math.PI*2);c.fill();c.stroke();
