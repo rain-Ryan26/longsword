@@ -1,4 +1,4 @@
-import {W,H} from './data.js';
+import {W,H,STATS} from './data.js';
 const TEAM=['#85d7e3','#e59678'];
 export class Renderer{
   constructor(canvas,minimap){this.canvas=canvas;this.ctx=canvas.getContext('2d');this.minimap=minimap;this.mc=minimap.getContext('2d');this.camera={x:25,y:32,zoom:13};this.width=1;this.height=1;this.terrainCanvas=null;this.lastMap=null;this.sizeDirty=true;
@@ -20,11 +20,11 @@ export class Renderer{
     ctx.strokeStyle='#b5c18c35';ctx.lineWidth=1.5;ctx.beginPath();for(let x=0;x<=W;x+=8){ctx.moveTo(x*16,0);ctx.lineTo(x*16,H*16);}for(let y=0;y<=H;y+=8){ctx.moveTo(0,y*16);ctx.lineTo(W*16,y*16);}ctx.stroke();
     this.lastMap=map;this.fogKey=null;this.miniBackgroundKey=null;this.miniUnitsKey=null;
   }
-  draw(state,view,selected,drag,marker){
+  draw(state,view,selected,drag,marker,selectedBuilding=null,buildPreview=null){
     if(this.sizeDirty||this.dpr!==(window.devicePixelRatio||1))this.resize();
     const mapChanged=this.lastMap!==state.map;
     const now=performance.now(),animated=!!marker&&marker.until>now;
-    const key=JSON.stringify([state.revision,state.time,state.visionVersion,view,this.camera,this.width,this.height,this.dpr,this.minimap.width,this.minimap.height,[...selected],drag,animated?marker:null]);
+    const key=JSON.stringify([state.revision,state.time,state.visionVersion,view,this.camera,this.width,this.height,this.dpr,this.minimap.width,this.minimap.height,[...selected],drag,animated?marker:null,selectedBuilding,buildPreview]);
     if(!mapChanged&&key===this.frameKey&&!animated)return false;
     this.frameKey=key;
     if(mapChanged)this.bake(state.map);
@@ -32,12 +32,30 @@ export class Renderer{
     const c=this.ctx,z=this.camera.zoom,team=view===2?1:0,all=view===1,visible=state.visible[team],explored=state.explored[team];
     c.fillStyle='#101b17';c.fillRect(0,0,this.width,this.height);c.save();c.translate(this.width/2-this.camera.x*z,this.height/2-this.camera.y*z);c.scale(z,z);
     c.drawImage(this.terrainCanvas,0,0,W,H);
+    const mined=node=>state.buildings.some(b=>b.type==='mine'&&b.hp>0&&!(b.constructionRemaining>0)&&b.x===node.x&&b.y===node.y);
+    for(const node of state.map.resources||[]){
+      if(mined(node))continue;
+      if(!all&&!explored[Math.floor(node.y)*W+Math.floor(node.x)])continue;
+      c.fillStyle='#f2ce45';c.fillRect(node.x-.65,node.y-.65,1.3,1.3);
+      c.textAlign='center';c.font='.75px "Microsoft YaHei"';c.fillText('矿产资源点',node.x,node.y+3);
+    }
     // Paths and entities are clipped by the same fog painted at the end.
     for(const b of state.buildings){
       if(!this.inView(b,7))continue;
-      if(b.hp<=0){if(all||explored[Math.floor(b.y)*W+Math.floor(b.x)]){c.fillStyle='#303329';c.fillRect(b.x-1.7,b.y-1.7,3.4,3.4);}continue;}
+      if(b.hp<=0){if(b.type==='mine')continue;if(all||explored[Math.floor(b.y)*W+Math.floor(b.x)]){c.fillStyle='#303329';c.fillRect(b.x-1.7,b.y-1.7,3.4,3.4);}continue;}
       if(!all&&b.team!==team&&!visible[Math.floor(b.y)*W+Math.floor(b.x)])continue;
-      c.save();c.translate(b.x,b.y);c.fillStyle='#0c171880';c.fillRect(-1.7,-1.4,4,3.8);c.fillStyle=b.team===0?'#35515a':'#644b3a';c.strokeStyle=TEAM[b.team];c.lineWidth=.12;c.fillRect(-1.8,-1.8,3.6,3.6);c.strokeRect(-1.8,-1.8,3.6,3.6);c.fillStyle=b.team===0?'#72999b':'#af8660';c.beginPath();c.moveTo(-2,-.7);c.lineTo(0,-2.4);c.lineTo(2,-.7);c.closePath();c.fill();c.fillStyle='#1d2c27';c.fillRect(-.45,.1,.9,1.7);c.strokeStyle=TEAM[b.team];c.beginPath();c.moveTo(1,-1.7);c.lineTo(1,-3.3);c.stroke();c.fillStyle=TEAM[b.team];c.fillRect(1,-3.3,1,.55);this.bar(c,0,-3.8,4,b.hp/b.maxHp,b.team);c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;c.fillText(b.team===0?'前线基地':'资源营地',0,2.8);c.restore();
+      if(b.type==='mine'){
+        c.save();c.translate(b.x,b.y);c.fillStyle='#f2ce45';c.fillRect(-.65,-.65,1.3,1.3);
+        if(b.id===selectedBuilding){c.strokeStyle='#e0ebac';c.lineWidth=.15;c.strokeRect(-2,-2,4,4);}
+        this.bar(c,0,-1.3,3,b.hp/b.maxHp,b.team);
+        c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;
+        c.fillText(b.constructionRemaining>0?`采矿场 · 施工 ${Math.ceil(b.constructionRemaining)} 秒`:'采矿场',0,b.constructionRemaining>0?1.8:2.8);
+        c.restore();continue;
+      }
+      c.save();c.translate(b.x,b.y);c.fillStyle='#0c171880';c.fillRect(-1.7,-1.4,4,3.8);c.fillStyle=b.team===0?'#35515a':'#644b3a';c.strokeStyle=TEAM[b.team];c.lineWidth=.12;c.fillRect(-1.8,-1.8,3.6,3.6);c.strokeRect(-1.8,-1.8,3.6,3.6);c.fillStyle=b.team===0?'#72999b':'#af8660';c.beginPath();c.moveTo(-2,-.7);c.lineTo(0,-2.4);c.lineTo(2,-.7);c.closePath();c.fill();c.fillStyle='#1d2c27';c.fillRect(-.45,.1,.9,1.7);c.strokeStyle=TEAM[b.team];c.beginPath();c.moveTo(1,-1.7);c.lineTo(1,-3.3);c.stroke();c.fillStyle=TEAM[b.team];c.fillRect(1,-3.3,1,.55);this.bar(c,0,-3.8,4,b.hp/b.maxHp,b.team);c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;c.fillText(STATS[b.type].name,0,2.8);
+      if(b.id===selectedBuilding){c.strokeStyle='#e0ebac';c.lineWidth=.18;c.strokeRect(-2.1,-2.1,4.2,4.2);}
+      if(b.type==='tower'){c.fillStyle='#85d7e3';c.beginPath();c.arc(0,-1.1,.45,0,Math.PI*2);c.fill();c.strokeStyle='#f4dfaa';c.lineWidth=.14;c.beginPath();c.moveTo(-.65,-1.1);c.lineTo(.65,-1.1);c.moveTo(0,-1.7);c.lineTo(0,-.5);c.stroke();}
+      c.restore();
       if(b.team===1){c.fillStyle='#bdbb80';for(let i=0;i<4;i++){c.save();c.translate(b.x+3+i*.6,b.y+2+(i%2)*.4);c.rotate(.5);c.fillRect(-.25,-.35,.5,.7);c.restore();}}
     }
     for(const u of state.units){
@@ -55,6 +73,10 @@ export class Renderer{
     for(const e of state.effects){if(!this.inView(e,2))continue;if(!all&&!visible[Math.floor(e.y)*W+Math.floor(e.x)])continue;c.strokeStyle=`rgba(247,218,151,${e.life/e.maxLife})`;c.lineWidth=.13;c.beginPath();c.arc(e.x,e.y,(1-e.life/e.maxLife)*.8+.2,0,Math.PI*2);c.stroke();}
     if(!all){
       c.imageSmoothingEnabled=false;c.drawImage(this.fogCanvas,0,0,W,H);
+    }
+    if(buildPreview&&Number.isFinite(buildPreview.x)&&Number.isFinite(buildPreview.y)){
+      const p=buildPreview;c.fillStyle=p.error?'#e66d6355':'#b8e67a55';c.strokeStyle=p.error?'#f09080':'#dcff9e';c.lineWidth=.15;c.fillRect(p.x-2,p.y-2,4,4);c.strokeRect(p.x-2,p.y-2,4,4);
+      c.fillStyle='#fff1d2';c.textAlign='center';c.font=`${Math.max(.8,12/z)}px "Microsoft YaHei"`;c.fillText(p.error||'左键建造',p.x,p.y+3);
     }
     if(marker&&marker.until>performance.now()){c.strokeStyle=marker.attack?'#f3b38a':'#d8e9a3';c.lineWidth=.12;const r=.7+(marker.until-performance.now())/1800;c.beginPath();c.arc(marker.x,marker.y,r,0,Math.PI*2);c.moveTo(marker.x-r-0.3,marker.y);c.lineTo(marker.x+r+.3,marker.y);c.moveTo(marker.x,marker.y-r-.3);c.lineTo(marker.x,marker.y+r+.3);c.stroke();}
     c.strokeStyle='#8c9b5e88';c.lineWidth=.12;c.strokeRect(0,0,W,H);c.restore();
@@ -85,7 +107,8 @@ export class Renderer{
     const unitsKey=`${backgroundKey}:${state.revision}:${state.time}`;
     if(this.miniUnitsKey!==unitsKey){
       const c=this.miniUnits.getContext('2d');c.drawImage(this.miniBackground,0,0);
-      for(const e of [...state.buildings,...state.units])if(e.hp>0&&(all||e.team===team||state.visible[team][Math.floor(e.y)*W+Math.floor(e.x)])){c.fillStyle=TEAM[e.team];const r=e.building?3:1.5;c.fillRect(e.x*s-r,e.y*s-r,r*2,r*2);}
+      for(const n of state.map.resources||[])if(!state.buildings.some(b=>b.type==='mine'&&b.hp>0&&!(b.constructionRemaining>0)&&b.x===n.x&&b.y===n.y)&&(all||state.explored[team][Math.floor(n.y)*W+Math.floor(n.x)])){c.fillStyle='#dfbd64';c.fillRect(n.x*s-3,n.y*s-3,6,6);}
+      for(const e of [...state.buildings,...state.units])if(e.hp>0&&(all||e.team===team||state.visible[team][Math.floor(e.y)*W+Math.floor(e.x)])){c.fillStyle=e.type==='mine'?'#f2ce45':TEAM[e.team];const r=e.building?3:1.5;c.fillRect(e.x*s-r,e.y*s-r,r*2,r*2);}
       this.miniUnitsKey=unitsKey;
     }
     const c=this.mc;c.drawImage(this.miniUnits,0,0);

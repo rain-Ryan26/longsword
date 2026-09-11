@@ -6,6 +6,8 @@ export const STATS = {
   shield:{name:'盾兵',hp:150,armor:5,damage:18,cooldown:.85,range:1.5,speed:3.2,vision:10,food:35,ore:20},
   archer:{name:'弓箭兵',hp:75,armor:1,damage:14,cooldown:1.2,range:8,speed:3.5,vision:12,food:40,ore:15},
   base:{name:'前线基地',hp:900,armor:4,vision:14},
+  mine:{name:'采矿场',hp:550,armor:3,vision:11,food:300,ore:400,buildTime:60},
+  tower:{name:'哨塔',hp:450,armor:5,vision:12*1.3,range:8*1.3,damage:14,cooldown:1.2,food:100,ore:200},
   camp:{name:'资源营地',hp:550,armor:3,vision:11}
 };
 export function createMap(){
@@ -15,5 +17,5 @@ export function createMap(){
     const forest = ((x-27)/8)**2+((y-15)/6)**2<1 || ((x-62)/7)**2+((y-33)/8)**2<1 || ((x-84)/7)**2+((y-51)/5)**2<1;
     terrain[y*W+x]=mountain?1:forest?2:0;
   }
-  return {version:1,width:W,height:H,terrain,camps:[{x:76,y:18},{x:77,y:46}],patrol:[{x:57,y:25},{x:70,y:27},{x:72,y:37},{x:58,y:38}]};
+  return {version:1,width:W,height:H,terrain,resources:[{x:24,y:40}],camps:[{x:76,y:18},{x:77,y:46}],patrol:[{x:57,y:25},{x:70,y:27},{x:72,y:37},{x:58,y:38}]};
 }

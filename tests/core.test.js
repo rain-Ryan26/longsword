@@ -13,7 +13,7 @@ test('迷雾按阵营隔离，探索记录保留',()=>{const g=new Game(),enemy=
 test('S 停止移动与开火，新命令恢复',()=>{const g=new Game(),u=g.units.find(u=>u.team===0);g.command([u.id],'move',{x:35,y:32});advance(g,1);g.command([u.id],'stop');const p={x:u.x,y:u.y};advance(g,2);assert.ok(distance(u,p)<.01);assert.equal(u.holdFire,true);assert.equal(u.targetId,null);g.command([u.id],'attack',{x:37,y:32});advance(g,2);assert.equal(u.holdFire,false);assert.ok(distance(u,p)>3);});
 test('弓箭延迟伤害、护甲扣减和射击暴露',()=>{const g=new Game();g.units=[];const a=g.addUnit('archer',0,35,31),b=g.addUnit('shield',1,42,31);b.holdFire=true;g.updateVision();g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(b.hp,150);assert.ok(a.revealUntil>g.time);advance(g,.4);assert.equal(b.hp,141);});
 test('停火不使正常视野内单位隐身，射击暴露过期',()=>{const g=new Game();g.units=[];g.buildings=[];g.map.terrain.fill(0);const a=g.addUnit('shield',0,20,20),b=g.addUnit('shield',1,40,20);a.holdFire=true;g.updateVision();assert.equal(g.canSee(1,a),false);a.revealUntil=2;g.updateVision();assert.equal(g.canSee(1,a),true);g.time=3;g.updateVision();assert.equal(g.canSee(1,a),false);b.x=24;g.updateVision();assert.equal(g.canSee(1,a),true);});
-test('训练扣费、出兵与人口上限',()=>{const g=new Game();assert.equal(g.train('shield'),null);assert.equal(g.food,145);assert.equal(g.ore,100);advance(g,3.1);assert.equal(g.units.filter(u=>u.team===0).length,15);assert.equal(g.queue.length,0);g.food=0;assert.match(g.train('archer'),/资源不足/);g.food=10000;g.ore=10000;while(g.units.filter(u=>u.team===0).length<40)g.addUnit('shield',0,18,36);assert.match(g.train('shield'),/人口/);});
+test('训练扣费、出兵与人口上限',()=>{const g=new Game();assert.equal(g.train('shield'),null);assert.equal(g.food,565);assert.equal(g.ore,580);advance(g,3.1);assert.equal(g.units.filter(u=>u.team===0).length,15);assert.equal(g.queue.length,0);g.food=0;assert.match(g.train('archer'),/资源不足/);g.food=10000;g.ore=10000;while(g.units.filter(u=>u.team===0).length<40)g.addUnit('shield',0,18,36);assert.match(g.train('shield'),/人口/);});
 test('BOT 巡逻沿路线移动',()=>{const g=new Game(),u=g.units.find(u=>u.role==='patrol'),p={x:u.x,y:u.y};advance(g,10);assert.ok(distance(u,p)>3);assert.ok(u.patrolIndex>0);});
 test('建筑摧毁解除占地，胜负停止模拟',()=>{const g=new Game(),b=g.buildings.find(b=>b.team===1);assert.equal(walkable(g.map,g.buildings,b.x,b.y),false);g.damage(b,9999);assert.equal(walkable(g.map,g.buildings,b.x,b.y),true);for(const e of g.buildings.filter(b=>b.team===1))e.hp=0;g.step(.05);assert.equal(g.result,'victory');const time=g.time;g.step(1);assert.equal(g.time,time);const h=new Game();h.buildings[0].hp=0;h.step(.05);assert.equal(h.result,'defeat');});
 test('完整进攻：部队配合训练增援可摧毁两处营地',()=>{const g=new Game();let stage=0;for(let n=0;n<12000&&!g.result;n++){if(n%200===0){const camp=g.buildings.filter(b=>b.team===1&&b.hp>0)[0];if(camp){g.command(g.units.filter(u=>u.team===0).map(u=>u.id),'attack',camp);stage++;}if(g.units.filter(u=>u.team===0).length<25)g.train(n%400===0?'shield':'archer');}g.step(.05);}assert.equal(g.result,'victory',`结果 ${g.result}, 剩余玩家 ${g.units.filter(u=>u.team===0).length}, 营地 ${g.buildings.filter(b=>b.team===1).map(b=>b.hp)}`);assert.ok(stage>1);});
@@ -139,4 +139,48 @@ test('强制穿山随追加路线保留，普通命令和停止清除',()=>{
     g.command([u.id],kind,{x:30.5,y:32.5});assert.equal(u.allowMountains,false);
     assert.deepEqual(u.waypoints,[]);
   }
+});
+
+
+test('采矿场选址、扣费、产矿、拆除与矿点复用',()=>{
+  const g=new Game(),ids=[g.units.find(u=>u.team===0).id],node=g.map.resources[0];
+  assert.ok(node.x<W/2);g.food=300;g.ore=400;
+  assert.match(g.build(ids,'mine',{x:30,y:30}),/矿产资源点/);
+  assert.equal(g.food,300);assert.equal(g.ore,400);
+  assert.equal(g.build(ids,'mine',node),null);
+  const mine=g.buildings.at(-1);assert.equal(mine.type,'mine');assert.equal(g.food,0);assert.equal(g.ore,0);
+  assert.equal(walkable(g.map,g.buildings,node.x,node.y),false);
+  g.step(.5);assert.equal(g.ore,1);assert.equal(g.food,1.5);assert.equal(mine.constructionRemaining,59.5);
+  mine.constructionRemaining=.25;g.step(.5);assert.equal(mine.constructionRemaining,0);assert.equal(g.ore,2.5);
+  g.food=1000;g.ore=1000;assert.match(g.build(ids,'mine',node),/冲突/);
+  assert.equal(g.demolish(mine.id),null);assert.equal(g.ore,1000);assert.equal(g.map.resources.length,1);
+  assert.equal(walkable(g.map,g.buildings,node.x,node.y),true);
+  g.step(.5);assert.equal(g.ore,1001);
+  assert.equal(g.build(ids,'mine',node),null);
+});
+test('建造拒绝越界、迷雾、建筑重叠、部队占地、资源不足与无有效选兵',()=>{
+  const g=new Game(),u=g.units.find(u=>u.team===0),ids=[u.id];g.food=1000;g.ore=1000;
+  assert.match(g.build([], 'tower',{x:24,y:40}),/选择部队/);
+  assert.match(g.build(ids,'tower',{x:0,y:0}),/超出地图/);
+  assert.match(g.build(ids,'tower',{x:90,y:5}),/视野/);
+  assert.match(g.build(ids,'tower',{x:12,y:32}),/冲突/);
+  assert.match(g.build(ids,'tower',u),/移开/);
+  g.ore=0;assert.match(g.build(ids,'tower',{x:24,y:40}),/资源不足/);
+  assert.equal(g.food,1000);assert.equal(g.buildings.length,3);
+  assert.match(g.demolish(g.buildings[1].id),/己方/);
+});
+test('哨塔固定驻兵使用增强射程、视野和弹道，拆除后停止攻击',()=>{
+  const g=new Game();g.units=[];g.map.terrain.fill(0);
+  const tower=g.addBuilding('tower',0,35,32),enemy=g.addUnit('shield',1,45,32);enemy.x=45;enemy.y=32;enemy.holdFire=true;
+  assert.equal(tower.hp,STATS.shield.hp*3);assert.equal(g.detectionRange(tower),STATS.archer.vision*1.3);
+  assert.equal(STATS.tower.range,STATS.archer.range*1.3);g.updateVision();
+  g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(enemy.hp,150);
+  advance(g,.5);assert.equal(enemy.hp,141);assert.equal(tower.x,35);assert.equal(g.units.length,1);
+  enemy.x=46;g.projectiles=[];tower.cooldown=0;g.updateVision();g.step(.05);assert.equal(g.projectiles.length,0);
+  enemy.x=45;assert.equal(g.demolish(tower.id),null);g.step(.05);assert.equal(g.projectiles.length,0);
+});
+test('基地拆除立即判负，重开恢复初始建筑与矿点',()=>{
+  const g=new Game();g.train('shield');assert.equal(g.demolish(g.buildings[0].id),null);
+  assert.equal(g.result,'defeat');assert.equal(g.queue.length,0);const ore=g.ore;g.step(1);assert.equal(g.ore,ore);
+  const fresh=new Game();assert.equal(fresh.buildings.length,3);assert.equal(fresh.map.resources.length,1);assert.equal(fresh.result,null);
 });

@@ -3,7 +3,7 @@ import {findPath,nearestFree,walkable,index} from './pathfinding.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 export class Game{
   constructor(){
-    this.map=createMap();this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.time=0;this.nextId=1;this.food=180;this.ore=120;this.queue=[];this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
+    this.map=createMap();this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.time=0;this.nextId=1;this.food=600;this.ore=600;this.queue=[];this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
     this.visible=[new Array(W*H).fill(0),new Array(W*H).fill(0)];this.explored=[new Array(W*H).fill(0),new Array(W*H).fill(0)];
     this.addBuilding('base',0,12,32);
     this.map.camps.forEach((p,i)=>{this.addBuilding('camp',1,p.x,p.y);for(let n=0;n<7;n++){const u=this.addUnit(n<4?'shield':'archer',1,p.x-6+(n%3)*2,p.y-4+Math.floor(n/3)*3);u.home={x:u.x,y:u.y};u.role='guard';u.camp=i;}});
@@ -11,7 +11,7 @@ export class Game{
     for(let n=0;n<5;n++){const u=this.addUnit(n<3?'shield':'archer',1,57+n*1.3,29);u.role='patrol';u.patrolIndex=0;}
     this.updateVision();
   }
-  addBuilding(type,team,x,y){const b={id:this.nextId++,type,team,x,y,hp:STATS[type].hp,maxHp:STATS[type].hp,building:true,revealUntil:0};this.buildings.push(b);return b;}
+  addBuilding(type,team,x,y){const b={id:this.nextId++,type,team,x,y,hp:STATS[type].hp,maxHp:STATS[type].hp,building:true,revealUntil:0,cooldown:0};this.buildings.push(b);return b;}
   addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],waypoints:[],allowMountains:false,goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0};this.units.push(u);return u;}
   entities(){return [...this.units,...this.buildings].filter(e=>e.hp>0);}
   canSee(team,e){return e.team===team||!!this.visible[team][index(e.x,e.y)];}
@@ -48,6 +48,35 @@ export class Game{
       if(p){u.goal=p;u.path=this.pathFor(u,p);}
     });
   }
+  placement(type,point){
+    if(!['mine','tower'].includes(type))return {error:'未知建筑'};
+    let p={x:Math.round(point.x),y:Math.round(point.y)};
+    if(type==='mine'){
+      const node=this.map.resources.find(n=>distance(n,point)<=2.5);
+      if(!node)return {error:'采矿场只能建在矿产资源点上',...p};
+      p={...node};
+    }
+    if(!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<2||p.y<2||p.x>W-2||p.y>H-2)return {...p,error:'建筑不能超出地图'};
+    if(this.buildings.some(b=>b.hp>0&&Math.abs(b.x-p.x)<4&&Math.abs(b.y-p.y)<4))return {...p,error:'与现有建筑冲突'};
+    for(let y=p.y-2;y<p.y+2;y++)for(let x=p.x-2;x<p.x+2;x++)if(!this.visible[0][index(x,y)])return {...p,error:'请在己方当前视野内建造'};
+    if(this.units.some(u=>u.hp>0&&Math.abs(u.x-p.x)<2.5&&Math.abs(u.y-p.y)<2.5))return {...p,error:'请先移开占地内的部队'};
+    return p;
+  }
+  build(ids,type,point){
+    if(this.result)return '战局已结束';
+    if(!this.units.some(u=>ids.includes(u.id)&&u.team===0&&u.hp>0))return '请先选择部队';
+    const p=this.placement(type,point);if(p.error)return p.error;
+    const s=STATS[type];if(this.food<s.food||this.ore<s.ore)return '资源不足';
+    this.food-=s.food;this.ore-=s.ore;const b=this.addBuilding(type,0,p.x,p.y);b.constructionRemaining=s.buildTime||0;
+    this.revision++;this.updateVision();return null;
+  }
+  demolish(id){
+    if(this.result)return '战局已结束';
+    const b=this.buildings.find(b=>b.id===id&&b.team===0&&b.hp>0);
+    if(!b)return '请选择己方建筑';
+    b.hp=0;if(b.type==='base'){this.queue=[];this.result='defeat';}
+    this.revision++;this.updateVision();return null;
+  }
   train(type){
     if(!['shield','archer'].includes(type)||this.result)return '当前不能训练';
     const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=40)return '人口已达上限';
@@ -55,7 +84,14 @@ export class Game{
     this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:3});this.revision++;return null;
   }
   step(dt){
-    if(this.result)return;this.revision++;this.time+=dt;this.food+=3*dt;this.ore+=2*dt;
+    if(this.result)return;this.revision++;this.time+=dt;
+    if(this.buildings.some(b=>b.type==='base'&&b.team===0&&b.hp>0)){this.food+=3*dt;this.ore+=2*dt;}
+    for(const b of this.buildings){
+      if(b.hp<=0||b.type!=='mine')continue;
+      const remaining=b.constructionRemaining||0;
+      b.constructionRemaining=Math.max(0,remaining-dt);
+      if(b.team===0)this.ore+=2*Math.max(0,dt-remaining);
+    }
     if(this.queue.length){this.queue[0].remaining-=dt;if(this.queue[0].remaining<=0){const q=this.queue.shift();const n=this.units.filter(u=>u.team===0).length;this.addUnit(q.type,0,15+n%3,35+Math.floor(n%9/3));}}
     this.visionTimer-=dt;if(this.visionTimer<=0){this.updateVision();this.visionTimer=.15;}
     const entities=this.entities();
@@ -91,6 +127,13 @@ export class Game{
         else if(u.targetId===null&&u.order==='idle')u.path=[];
       }
       this.move(u,this.movementSpeed(u)*dt);
+    }
+    for(const tower of this.buildings.filter(b=>b.type==='tower'&&b.hp>0)){
+      const s=STATS.tower;tower.cooldown=Math.max(0,tower.cooldown-dt);
+      const target=entities.filter(e=>e.team!==tower.team&&e.hp>0&&this.canSee(tower.team,e)&&distance(tower,e)<=this.detectionRange(tower)&&distance(tower,e)<=s.range+(e.building?1.5:0)).sort((a,b)=>distance(tower,a)-distance(tower,b))[0];
+      if(target&&tower.cooldown<=0){tower.cooldown=s.cooldown;tower.revealUntil=this.time+2;
+        this.projectiles.push({x:tower.x,y:tower.y,fromX:tower.x,fromY:tower.y,targetId:target.id,team:tower.team,damage:s.damage,life:2});
+      }
     }
     this.separate(dt);
     for(const p of this.projectiles){const target=entities.find(e=>e.id===p.targetId&&e.hp>0);if(!target){p.life=0;continue;}const d=distance(p,target),step=22*dt;p.life-=dt;if(d<=step){p.x=target.x;p.y=target.y;this.damage(target,p.damage);this.effects.push({x:p.x,y:p.y,team:p.team,kind:'hit',life:.3,maxLife:.3});p.life=0;}else{p.x+=(target.x-p.x)/d*step;p.y+=(target.y-p.y)/d*step;}}

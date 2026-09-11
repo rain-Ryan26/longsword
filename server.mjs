@@ -14,7 +14,7 @@ const server = http.createServer((req,res) => {
 const port = Number(process.env.PORT || 4173);
 server.listen(port,'127.0.0.1', () => {
   const url=`http://127.0.0.1:${port}`;
-  console.log(`Long Sword: ${url}`);
+  console.log(`longsword: ${url}`);
   if(process.argv.includes('--open')&&process.platform==='win32')execFile('rundll32.exe',['url.dll,FileProtocolHandler',url],{windowsHide:true},err=>{if(err)console.log('Please open the URL above in your browser.');});
 });
 server.on('error', err => { console.error(err.message); process.exitCode=1; });

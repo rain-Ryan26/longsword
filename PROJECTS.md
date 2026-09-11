@@ -1,4 +1,4 @@
-# Long Sword 项目索引
+# longsword 项目索引
 
 ## 项目状态
 
@@ -10,6 +10,7 @@
 
 - `AGENTS.md`：仓库级协作、修改和验证原则。
 - `docs/design/设计要点.md`：早期设计草稿。
+- `docs/design/游戏文化.md`：游戏名称、文化与画风构想。
 - `docs/design/初版范围.md`：本版需求与实施顺序。
 - `docs/design/操作列表.md`：鼠标、快捷键与界面操作。
 - `docs/design/GUI设计.md`：当前布局、战场显示与交互提示。

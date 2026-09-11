@@ -12,10 +12,23 @@ const receiver=observer?new SnapshotReceiver(crypto.randomUUID()):null;
 let lastHello=-Infinity;
 const controlGroups=new Map();
 let lastUnitClick=null,lastRightClick=null;
+let buildMenu=false,buildType=null,selectedBuilding=null,buildPreview=null;
 let state=game?.snapshot(),selected=new Set(),view=observer?1:0,attackMode=false,drag=null,marker=null,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer;
 const renderer=new Renderer($('game'),$('minimap'));renderer.resize();if(observer)renderer.camera={x:W/2,y:H/2,zoom:Math.max(5,Math.min(renderer.width/W,renderer.height/H)*.88)};$('perspective').value=view;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),2600);}
-function setAttack(on){attackMode=on;$('game').style.cursor=on?'crosshair':'default';$('mode-hint').textContent=observer?'观察窗口 · 滚轮缩放 · 中键拖动':on?'攻击移动：左键指定位置 · Esc 取消':'左键选择 · 右键移动';}
+function setAttack(on){if(on)closeBuild();attackMode=on;$('game').style.cursor=on?'crosshair':'default';$('mode-hint').textContent=observer?'观察窗口 · 滚轮缩放 · 中键拖动':on?'攻击移动：左键指定位置 · Esc 取消':'左键选择 · 右键移动';}
+function closeBuild(){buildMenu=false;buildType=null;selectedBuilding=null;buildPreview=null;setAttack(false);}
+function previewAt(p){
+  const placement=game.placement(buildType,renderer.world(p.x,p.y)),s=STATS[buildType];
+  buildPreview={...placement,error:placement.error||(game.food<s.food||game.ore<s.ore?'资源不足':null)};
+}
+$('cancel-build').onclick=()=>{closeBuild();updateHud();};
+for(const type of ['mine','tower'])$('build-'+type).onclick=()=>{
+  if(observer)return;buildType=type;buildPreview=null;setAttack(false);
+  canvas.style.cursor='crosshair';$('mode-hint').textContent=`放置${STATS[type].name}：左键建造 · 右键 / Esc 取消`;
+  updateHud();
+};
+$('demolish').onclick=()=>{if(observer)return;const error=game.demolish(selectedBuilding);toast(error||'建筑已拆除，不退还资源');if(!error)closeBuild();sendSnapshot();updateHud();};
 function syncView(){lastRightClick=null;view=Number($('perspective').value);$('view-name').textContent=['玩家视角','全局视角','BOT 视角'][view];}
 $('perspective').addEventListener('input',syncView);syncView();
 function sendSnapshot(){if(game)host.publish(game.snapshot(),paused,speed,performance.now());}
@@ -28,14 +41,14 @@ channel.onmessage=event=>{
   }else if(!observer&&host.receive(msg,performance.now()))sendSnapshot();
 };
 window.addEventListener('pagehide',()=>{if(receiver)channel.postMessage(receiver.message('bye'));});
-if(observer){document.title='长剑 · 独立观察';$('session-label').textContent='独立观察 · 共享战局';$('connection').hidden=false;for(const id of ['pause','speed','restart','again','train-shield','train-archer','observer'])$(id).disabled=true;channel.postMessage(receiver.message());setAttack(false);}
+if(observer){document.title='longsword · 独立观察';$('session-label').textContent='独立观察 · 共享战局';$('connection').hidden=false;for(const id of ['pause','speed','restart','again','train-shield','train-archer','observer'])$(id).disabled=true;channel.postMessage(receiver.message());setAttack(false);}
 $('observer').onclick=()=>{const url=new URL(location.href);url.searchParams.set('observe','1');const popup=window.open(url.href,`longsword-observer-${session}`,'popup,width=1280,height=850');let link=document.getElementById('observer-link');if(!link){link=document.createElement('a');link.id='observer-link';link.target='_blank';link.textContent='观察页备用链接（可复制到新窗口）';$('observer').after(link);}link.href=url.href;if(!popup)toast('浏览器未打开弹窗，请使用下方观察页链接');};
 function togglePause(){if(observer)return;paused=!paused;acc=0;last=performance.now();sendSnapshot();updateHud();}
 $('pause').onclick=togglePause;
 $('speed').onclick=()=>{speed=speed===1?2:1;sendSnapshot();updateHud();};
-function restart(){if(observer)return;Object.assign(game,new Game());selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera={x:25,y:32,zoom:13};setAttack(false);sendSnapshot();updateHud();toast('新行动开始');}
+function restart(){if(observer)return;Object.assign(game,new Game());closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera={x:25,y:32,zoom:13};setAttack(false);sendSnapshot();updateHud();toast('新行动开始');}
 $('restart').onclick=restart;$('again').onclick=restart;
-function stop(){if(observer)return;game.command([...selected],'stop');setAttack(false);toast(selected.size?'已停止移动并停火':'请先选择部队');}
+function stop(){if(observer)return;closeBuild();game.command([...selected],'stop');setAttack(false);toast(selected.size?'已停止移动并停火':'请先选择部队');}
 for(const type of ['shield','archer'])$('train-'+type).onclick=()=>{const error=game.train(type);toast(error||`${STATS[type].name}已加入训练队列`);updateHud();};
 function local(event){const rect=$('game').getBoundingClientRect();return {x:event.clientX-rect.left,y:event.clientY-rect.top};}
 function visibleToView(e){const team=view===2?1:0;return view===1||e.team===team||state.visible[team][Math.floor(e.y)*W+Math.floor(e.x)];}
@@ -43,16 +56,16 @@ function issue(p,attack,append=false,allowMountains=false){lastUnitClick=null;if
 const canvas=$('game');
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('pointerdown',e=>{if(!state)return;const p=local(e);if(e.button!==2)lastRightClick=null;if(e.button===1){e.preventDefault();drag={kind:'pan',sx:p.x,sy:p.y,x:p.x,y:p.y,cx:renderer.camera.x,cy:renderer.camera.y};canvas.setPointerCapture(e.pointerId);return;}if(observer)return;if(e.button===2){
-  e.preventDefault();const world=renderer.world(p.x,p.y),now=performance.now();
+  e.preventDefault();if(buildMenu||buildType){closeBuild();updateHud();return;}const world=renderer.world(p.x,p.y),now=performance.now();
   const mountain=world.x>=0&&world.x<W&&world.y>=0&&world.y<H&&state.map.terrain[Math.floor(world.y)*W+Math.floor(world.x)]===1;
   const doubleClick=!e.shiftKey&&mountain&&selected.size>0&&lastRightClick&&now-lastRightClick.time<350&&Math.hypot(p.x-lastRightClick.x,p.y-lastRightClick.y)<6;
   issue(p,false,e.shiftKey,!!doubleClick);
   lastRightClick=!e.shiftKey&&mountain&&!doubleClick?{x:p.x,y:p.y,time:now}:null;
   return;
-}if(e.button===0){if(attackMode){issue(p,true);return;}drag={kind:'select',sx:p.x,sy:p.y,x:p.x,y:p.y,shift:e.shiftKey};canvas.setPointerCapture(e.pointerId);}});
-canvas.addEventListener('pointermove',e=>{if(!drag)return;const p=local(e);drag.x=p.x;drag.y=p.y;if(drag.kind==='pan'){renderer.camera.x=drag.cx-(p.x-drag.sx)/renderer.camera.zoom;renderer.camera.y=drag.cy-(p.y-drag.sy)/renderer.camera.zoom;renderer.clamp();}});
+}if(e.button===0){if(buildType){const error=game.build([...selected],buildType,renderer.world(p.x,p.y));toast(error||(buildType==='mine'?'采矿场开始施工 · 60 秒':`${STATS[buildType].name}已建成`));if(!error)closeBuild();else previewAt(p);sendSnapshot();updateHud();return;}if(attackMode){issue(p,true);return;}drag={kind:'select',sx:p.x,sy:p.y,x:p.x,y:p.y,shift:e.shiftKey};canvas.setPointerCapture(e.pointerId);}});
+canvas.addEventListener('pointermove',e=>{if(buildType&&game)previewAt(local(e));if(!drag)return;const p=local(e);drag.x=p.x;drag.y=p.y;if(drag.kind==='pan'){renderer.camera.x=drag.cx-(p.x-drag.sx)/renderer.camera.zoom;renderer.camera.y=drag.cy-(p.y-drag.sy)/renderer.camera.zoom;renderer.clamp();}});
 canvas.addEventListener('pointerup',e=>{if(!drag)return;if(drag.kind==='select'){
-  if(!drag.shift)selected.clear();const click=Math.hypot(drag.x-drag.sx,drag.y-drag.sy)<5;
+  closeBuild();if(!drag.shift)selected.clear();const click=Math.hypot(drag.x-drag.sx,drag.y-drag.sy)<5;
   const choices=state.units.filter(u=>u.team===0&&u.hp>0&&visibleToView(u));
   if(click){
     const p=renderer.world(drag.x,drag.y);
@@ -66,7 +79,11 @@ canvas.addEventListener('pointerup',e=>{if(!drag)return;if(drag.kind==='select')
         if(drag.shift&&selected.has(u.id))selected.delete(u.id);else selected.add(u.id);
         lastUnitClick={id:u.id,time:now,x:drag.x,y:drag.y};
       }
-    }else lastUnitClick=null;
+    }else {
+      lastUnitClick=null;
+      const b=state.buildings.find(b=>b.team===0&&b.hp>0&&visibleToView(b)&&Math.abs(b.x-p.x)<2&&Math.abs(b.y-p.y)<2);
+      if(b){selected.clear();selectedBuilding=b.id;}
+    }
   }else{
     lastUnitClick=null;
     for(const u of choices){const p=renderer.screen(u.x,u.y);if(p.x>=Math.min(drag.sx,drag.x)&&p.x<=Math.max(drag.sx,drag.x)&&p.y>=Math.min(drag.sy,drag.y)&&p.y<=Math.max(drag.sy,drag.y))selected.add(u.id);}
@@ -91,13 +108,14 @@ window.addEventListener('keydown',e=>{
     }else{
       const ids=(controlGroups.get(key)||[]).filter(id=>living.has(id));
       controlGroups.set(key,ids);
-      if(ids.length){selected=new Set(ids);setAttack(false);toast(`已选择编队 ${key} · ${ids.length} 人`);updateHud();}else toast(`编队 ${key} 没有存活单位`);
+      if(ids.length){closeBuild();selected=new Set(ids);setAttack(false);toast(`已选择编队 ${key} · ${ids.length} 人`);updateHud();}else toast(`编队 ${key} 没有存活单位`);
     }
     return;
   }
   if(key===' '){e.preventDefault();if(!e.repeat)togglePause();return;}
-  if(key==='escape'){setAttack(false);drag=null;}
+  if(key==='escape'){closeBuild();drag=null;updateHud();}
   if(observer||e.repeat)return;
+  if(key==='b'){e.preventDefault();closeBuild();if([...selected].some(id=>game.units.some(u=>u.id===id&&u.team===0&&u.hp>0))){buildMenu=true;updateHud();}else toast('请先选择部队');}
   if(key==='a'){e.preventDefault();if(selected.size)setAttack(true);else toast('请先选择部队');}
   if(key==='s'){e.preventDefault();stop();}
 });
@@ -111,8 +129,19 @@ function updateHud(){
   const units=state.units.filter(u=>selected.has(u.id)),shields=units.filter(u=>u.type==='shield').length,archers=units.length-shields;
   $('selection-title').textContent=observer?'观察模式':units.length?'已选择部队':'未选择部队';$('selection-count').textContent=units.length;
   $('selection-info').textContent=observer?'只观察共享战局，指令请在主窗口下达。':units.length?`${shields} 盾兵 · ${archers} 弓箭兵 · ${units.filter(u=>u.holdFire).length} 停火\n总生命 ${Math.ceil(units.reduce((n,u)=>n+u.hp,0))}`:'左键拖动，框选蓝色部队。';
+  const building=state.buildings.find(b=>b.id===selectedBuilding&&b.hp>0);
+  if(selectedBuilding&&!building)closeBuild();
+  if(buildMenu&&!units.length)closeBuild();
+  if(state.result&&(buildMenu||buildType))closeBuild();
+  $('building-actions').hidden=observer||(!buildMenu&&!building);
+  $('build-options').hidden=!buildMenu;$('demolish').hidden=!building;
+  $('demolish').disabled=!!state.result;
+  $('building-title').textContent=building?STATS[building.type].name:'建造菜单 · B';
+  $('building-info').textContent=building?`生命 ${Math.ceil(building.hp)} / ${building.maxHp} · ${building.type==='base'?'每秒 +3 食物、+2 矿产；可训练部队。拆除基地将判负。':building.type==='mine'?(building.constructionRemaining>0?`施工中 · 剩余 ${Math.ceil(building.constructionRemaining)} 秒，完工后每秒 +2 矿产`:'每秒 +2 矿产'):'驻守弓箭兵 · 视野 15.6 / 射程 10.4'}`:buildType?`左键放置${STATS[buildType].name}，绿色可建 / 红色不可建。`:'选择建筑后左键选址；采矿场只能建在金色矿点上。';
+  if(building){$('selection-title').textContent=STATS[building.type].name;$('selection-count').textContent='1';$('selection-info').textContent='右下角可拆除建筑。';}
+  for(const type of ['mine','tower'])$('build-'+type).disabled=!!state.result||state.food<STATS[type].food||state.ore<STATS[type].ore;
   $('queue').textContent=state.queue.length?`训练 ${STATS[state.queue[0].type].name} · ${Math.max(0,state.queue[0].remaining).toFixed(1)} 秒 ｜ 排队 ${state.queue.length} 人`:'训练队列为空';
-  $('result').hidden=!state.result;if(state.result){$('result-title').textContent=state.result==='victory'?'边境已夺回':'基地已失守';$('result-copy').textContent=state.result==='victory'?'两座敌营已摧毁，本次行动胜利。':'调整阵型，保护弓箭兵，再试一次。';}
+  $('result').hidden=!state.result;if(state.result){$('result-title').textContent=state.result==='victory'?'敌营已摧毁':'基地已失守';$('result-copy').textContent=state.result==='victory'?'两座敌营已摧毁，本次行动胜利。':'调整阵型，保护弓箭兵，再试一次。';}
   $('zoom-label').textContent=Math.round(renderer.camera.zoom/13*100)+'%';
 }
 // Simulation uses a timer so an observer can remain foreground while the host is hidden.
@@ -122,7 +151,7 @@ let lastFrame=null;
 function frame(now){
   const elapsed=lastFrame===null?frameInterval:now-lastFrame;
   if(elapsed>=frameInterval-.001){
-    if(state)renderer.draw(state,view,selected,drag,marker);
+    if(state)renderer.draw(state,view,selected,drag,marker,selectedBuilding,buildPreview);
     // Preserve the remainder without replaying frames after a slow or hidden tab.
     lastFrame=now-Math.max(0,elapsed-Math.floor((elapsed+.001)/frameInterval)*frameInterval);
   }
