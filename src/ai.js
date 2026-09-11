@@ -1,41 +1,39 @@
 import {STATS} from './data.js';
-// 旧版进攻关卡用防守 AI，防守关卡用两波总攻 AI。
+// 进攻关卡用联防 AI，防守关卡用两波总攻 AI。
 // AI 只通过 game 提供的公开接口下达指令，不读取玩家视野。
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 
-// 防守 AI：驻守基地、残血撤退治疗、持续补员，兵力充足且基地无警时反推。
+// 联防 AI：五个防区各自驻守；一处受袭时从其他防区抽调守军，平静后归队。
 export class DefendAI{
-  constructor(){this.trainTimer=0;this.pushTimer=0;}
+  constructor(){this.timer=0;this.responders=new Set();}
   update(game,dt){
-    const base=game.buildings.find(b=>b.team===1&&b.primary&&b.hp>0);
-    // 撤退治疗：生命低于 35% 撤回基地治疗圈，恢复到 80% 后返回驻点
-    if(base)for(const u of game.units){
-      if(u.team!==1||u.hp<=0||u.role!=='guard')continue;
-      if(!u.retreat&&u.hp<u.maxHp*.35){u.retreat=true;game.command([u.id],'move',{x:base.x,y:base.y+4},null,false,false,1);}
-      else if(u.retreat&&u.hp>u.maxHp*.8){u.retreat=false;if(u.home)game.command([u.id],'move',{x:u.home.x,y:u.home.y},null,false,false,1);}
+    this.timer-=dt;if(this.timer>0)return;this.timer=2;
+    const army=game.units.filter(u=>u.team===1&&u.hp>0&&(u.type==='shield'||u.type==='archer'));
+    const alive=new Set(army.map(u=>u.id));
+    for(const id of this.responders)if(!alive.has(id))this.responders.delete(id);
+    const own=game.entities().filter(e=>e.team===1);
+    const recentlyHit=own.filter(e=>game.time-(e.lastDamagedAt??-Infinity)<=3)
+      .sort((a,b)=>(b.lastDamagedAt??0)-(a.lastDamagedAt??0))[0];
+    const visible=game.units.filter(u=>u.team===0&&u.hp>0&&game.canSee(1,u));
+    const threatened=visible.map(enemy=>({enemy,anchor:own.filter(e=>e.building||e.role==='guard'||e.role==='reinforce')
+      .sort((a,b)=>distance(a,enemy)-distance(b,enemy))[0]}))
+      .filter(x=>x.anchor&&distance(x.enemy,x.anchor)<14).sort((a,b)=>distance(a.enemy,a.anchor)-distance(b.enemy,b.anchor))[0];
+    const threat=recentlyHit||threatened?.enemy;
+    if(!threat){
+      const returning=army.filter(u=>this.responders.has(u.id));
+      for(const u of returning){u.role='guard';u.aiOrderKey=null;}
+      for(const u of returning)game.command([u.id],'move',u.home,null,false,false,1);
+      this.responders.clear();
+      return;
     }
-    // 补员：弓箭兵占比不足 40% 时优先弓箭兵
-    this.trainTimer-=dt;
-    if(this.trainTimer<=0){
-      this.trainTimer=2;
-      const army=game.units.filter(u=>u.team===1&&u.hp>0);
-      const archers=army.filter(u=>u.type==='archer').length;
-      game.aiTrain(archers<army.length*.4?'archer':'shield');
-    }
-    // 反推：驻守不少于 20 人且基地附近无可见敌军时全军压上
-    this.pushTimer-=dt;
-    if(this.pushTimer<=0){
-      this.pushTimer=5;
-      const guards=game.units.filter(u=>u.team===1&&u.hp>0&&u.role==='guard');
-      const enemyBase=game.buildings.find(b=>b.team===0&&b.primary&&b.hp>0);
-      if(base&&enemyBase&&guards.length>=20){
-        const threat=game.units.some(u=>u.team===0&&u.hp>0&&game.canSee(1,u)&&distance(u,base)<15);
-        if(!threat){
-          for(const u of guards)u.role='attack';
-          game.command(guards.map(u=>u.id),'attack',{x:enemyBase.x,y:enemyBase.y},null,false,false,1);
-        }
-      }
-    }
+    const towers=game.buildings.filter(b=>b.team===1&&b.type==='tower'&&b.hp>0);
+    const sector=threat.defenseSector??towers.sort((a,b)=>distance(a,threat)-distance(b,threat))[0]?.defenseSector;
+    const committed=army.filter(u=>u.defenseSector===sector||this.responders.has(u.id));
+    const recruits=army.filter(u=>u.defenseSector!==sector&&!this.responders.has(u.id))
+      .sort((a,b)=>distance(a,threat)-distance(b,threat)).slice(0,Math.max(0,24-committed.length));
+    for(const u of recruits){u.role='reinforce';u.aiOrderKey=`reinforce:${sector}`;this.responders.add(u.id);}
+    const response=army.filter(u=>this.responders.has(u.id));
+    if(response.length)game.command(response.map(u=>u.id),'attack',{x:threat.x,y:threat.y},threat.team===0?threat.id:null,false,false,1);
   }
 }
 

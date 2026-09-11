@@ -2,6 +2,7 @@ import {STATS,createMap,createMapAttack,createMapBalanced,createMapDefend,DETECT
 import {findPath,nearestFree,walkable,buildingCells} from './pathfinding.js';
 import {DefendAI,AssaultAI,BalancedAI} from './ai.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+export const TRAIN_QUEUE_LIMIT=50;
 // 视线消耗系数：陆地视野经过每格时消耗 1/侦测系数 的有效侦测距离
 const TERRAIN_COST=DETECTION_MULTIPLIERS.map(m=>1/m);
 export class Game{
@@ -50,19 +51,32 @@ export class Game{
       this.spawnDefenseArmy(firstWave,1);
       return;
     }
-    const attack=this.level==='attack';
-    // 双方对称经济：主基地、采矿场（矿点上）、食物厂，均直接完工
+    // 双方经济建筑直接完工。
     this.addBuilding('base',0,12,32).primary=true;
     this.addBuilding('mine',0,22.5,40.5);
     this.addBuilding('factory',0,16.5,22.5);
     this.addBuilding('base',1,84,32).primary=true;
     this.addBuilding('mine',1,72.5,24.5);
     this.addBuilding('factory',1,79.5,22.5);
-    const playerCount=attack?14:20,playerShield=attack?8:10;
-    for(let n=0;n<playerCount;n++)this.addUnit(n<playerShield?'shield':'archer',0,19+(n%4)*2,27+Math.floor(n/4)*2.2);
-    const enemyCount=attack?14:22,enemyShield=attack?8:14;
-    for(let n=0;n<enemyCount;n++){
-      const u=this.addUnit(n<enemyShield?'shield':'archer',1,78+(n%4)*2,27+Math.floor(n/4)*2.2);
+    if(this.level==='attack'){
+      // 我方 60 盾、60 弓，沿西侧展开。
+      for(const type of ['shield','archer'])for(let n=0;n<60;n++){
+        const front=type==='shield',x=(front?30:18)+Math.floor(n/12)*2,y=4+(n%12)*5;
+        this.addUnit(type,0,x,y);
+      }
+      // 五个防区各有一座哨塔、8 盾、10 弓。
+      for(const [sector,y] of [8,20,32,44,56].entries()){
+        const tower=this.addBuilding('tower',1,68,y);tower.defenseSector=sector;
+        for(const [type,count,x] of [['shield',8,63],['archer',10,72]])for(let n=0;n<count;n++){
+          const u=this.addUnit(type,1,x+(n%2)*1.6,y-4.8+Math.floor(n/2)*2.2);
+          u.home={x:u.x,y:u.y};u.role='guard';u.defenseSector=sector;
+        }
+      }
+      return;
+    }
+    for(let n=0;n<20;n++)this.addUnit(n<10?'shield':'archer',0,19+(n%4)*2,27+Math.floor(n/4)*2.2);
+    for(let n=0;n<22;n++){
+      const u=this.addUnit(n<14?'shield':'archer',1,78+(n%4)*2,27+Math.floor(n/4)*2.2);
       u.home={x:u.x,y:u.y};u.role='guard';
     }
   }
@@ -246,9 +260,10 @@ export class Game{
     if(this.level==='defend'&&!this.buildings.some(b=>b.team===0&&b.hp>0))this.result='defeat';
     this.revision++;this.updateVision();return null;
   }
-  // 进攻、防守固定 100 人口；其他模式按已完工且存活的基地叠加。
+  // 进攻固定 120 人口、防守固定 100 人口；其他模式按已完工且存活的基地叠加。
   popCap(team=0){
-    if(this.level==='attack'||this.level==='defend')return 100;
+    if(this.level==='attack')return 120;
+    if(this.level==='defend')return 100;
     return this.buildings.reduce((n,b)=>n+(b.team===team&&b.hp>0&&!b.constructionPending?STATS[b.type].pop||0:0),0);
   }
   train(type,baseId=null){
@@ -256,24 +271,39 @@ export class Game{
     const base=this.buildings.find(b=>b.type==='base'&&b.team===0&&b.hp>0&&!b.constructionPending&&(baseId===null||b.id===baseId));
     if(!base)return '请选择已完工的基地';
     const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=this.popCap())return '人口已达上限';
-    if(this.queue.length>=8)return '训练队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足，基地正在持续生产';
+    if(this.queue.filter(q=>q.baseId===base.id).length>=TRAIN_QUEUE_LIMIT)return '所选基地训练队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足，基地正在持续生产';
     this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:s.trainTime||3,baseId:base.id});this.revision++;return null;
   }
   // AI 训练：与玩家相同的费用、人口与队列规则，使用 AI 自己的资源
   aiTrain(type){
     if(!['shield','archer','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
-    const base=this.buildings.find(b=>b.type==='base'&&b.team===1&&b.hp>0&&!b.constructionPending);
+    const bases=this.buildings.filter(b=>b.type==='base'&&b.team===1&&b.hp>0&&!b.constructionPending);
+    const base=bases.sort((a,b)=>this.aiQueue.filter(q=>q.baseId===a.id).length-this.aiQueue.filter(q=>q.baseId===b.id).length||a.id-b.id)[0];
     if(!base)return 'AI 无可用基地';
     const s=STATS[type];
     const cap=this.popCap(1);
     if(this.units.filter(u=>u.team===1&&u.hp>0).length+this.aiQueue.length>=cap)return '人口已达上限';
-    if(this.aiQueue.length>=8)return '训练队列已满';
+    if(this.aiQueue.filter(q=>q.baseId===base.id).length>=TRAIN_QUEUE_LIMIT)return '训练队列已满';
     if(this.aiFood<s.food||this.aiOre<s.ore)return '资源不足';
     this.aiFood-=s.food;this.aiOre-=s.ore;this.aiQueue.push({type,remaining:s.trainTime||3,baseId:base.id});this.revision++;return null;
   }
   foodRate(b){
     const c=buildingCells(b);
     return (this.map.foodPoints||[]).some(n=>n.x>=c.x0&&n.x<=c.x1&&n.y>=c.y0&&n.y<=c.y1)?6:3;
+  }
+  stepTrainingQueue(queue,team,dt){
+    const liveBases=this.buildings.filter(b=>b.type==='base'&&b.team===team&&b.hp>0&&!b.constructionPending);
+    const liveIds=new Set(liveBases.map(b=>b.id));
+    for(let i=queue.length-1;i>=0;i--)if(!liveIds.has(queue[i].baseId))queue.splice(i,1);
+    for(const base of liveBases){
+      const index=queue.findIndex(q=>q.baseId===base.id);if(index<0)continue;
+      const q=queue[index];q.remaining-=dt;
+      if(q.remaining>0)continue;
+      queue.splice(index,1);
+      const n=this.units.filter(u=>u.team===team).length;
+      const u=this.addUnit(q.type,team,base.x+(team?-3:3)+(team?-1:1)*(n%3),base.y+3+Math.floor(n%9/3));
+      if(team===1){u.home={x:u.x,y:u.y};u.role=this.level==='balanced'?'army':'guard';}
+    }
   }
   step(dt){
     if(this.result)return;this.revision++;this.time+=dt;
@@ -320,10 +350,8 @@ export class Game{
         for(const u of patients){u.hp=Math.min(u.maxHp,u.hp+s.healRate*productionTime);u.healing=true;healed.add(u.id);}
       }
     }
-    this.queue=this.queue.filter(q=>this.buildings.some(b=>b.id===q.baseId&&b.hp>0));
-    if(this.queue.length){this.queue[0].remaining-=dt;if(this.queue[0].remaining<=0){const q=this.queue.shift(),base=this.buildings.find(b=>b.id===q.baseId);const n=this.units.filter(u=>u.team===0).length;this.addUnit(q.type,0,base.x+3+n%3,base.y+3+Math.floor(n%9/3));}}
-    this.aiQueue=this.aiQueue.filter(q=>this.buildings.some(b=>b.id===q.baseId&&b.hp>0));
-    if(this.aiQueue.length){this.aiQueue[0].remaining-=dt;if(this.aiQueue[0].remaining<=0){const q=this.aiQueue.shift(),base=this.buildings.find(b=>b.id===q.baseId);const n=this.units.filter(u=>u.team===1).length;const u=this.addUnit(q.type,1,base.x-3-n%3,base.y+3+Math.floor(n%9/3));u.home={x:u.x,y:u.y};u.role=this.level==='balanced'?'army':'guard';}}
+    this.stepTrainingQueue(this.queue,0,dt);
+    this.stepTrainingQueue(this.aiQueue,1,dt);
     if(this.ai)this.ai.update(this,dt);
     this.visionTimer-=dt;if(this.visionTimer<=0){this.updateVision();this.visionTimer=.15;}
     const entities=this.entities();
@@ -436,7 +464,7 @@ export class Game{
       if(u.landing&&!walkable(this.map,this.buildings,Math.floor(u.landing.x),Math.floor(u.landing.y)))u.landing=nearestFree(this.map,this.buildings,u.landing.x,u.landing.y);
     }
   }
-  damage(e,amount){e.hp=Math.max(0,e.hp-Math.max(1,amount-STATS[e.type].armor));}
+  damage(e,amount){e.hp=Math.max(0,e.hp-Math.max(1,amount-STATS[e.type].armor));e.lastDamagedAt=this.time;}
   move(u,amount){
     if(STATS[u.type].air&&!this.isFlying(u))return;
     const buildings=u.leavingId!=null?this.buildings.filter(b=>b.id!==u.leavingId):this.buildings;

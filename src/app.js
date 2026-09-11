@@ -1,4 +1,4 @@
-import {Game} from './core.js';
+import {Game,TRAIN_QUEUE_LIMIT} from './core.js';
 import {Renderer} from './renderer.js';
 import {SnapshotHost,SnapshotReceiver} from './sync.js';
 import {STATS,W,H} from './data.js';
@@ -10,7 +10,7 @@ const channel=new BroadcastChannel(`longsword-${session}`),game=observer?null:ne
 const LEVELS={
   demo:{title:'夺下双营地',desc:'侦察东部资源点，摧毁两座敌方营地。',toast:'框选蓝色部队，按 A 后点击目的地。'},
   balanced:{title:'均衡对抗',desc:'扩张经济、集结部队，摧毁敌方全部建筑。',toast:'双方各 6 盾兵、6 弓箭兵；绿色食物点上的食物厂产量翻倍。'},
-  attack:{title:'摧毁敌方建筑',desc:'旧版试玩：新的一轮兵力进攻规则待制作。',toast:'敌军依托基地驻防并持续补员，注意集火与拉扯。'},
+  attack:{title:'突破五塔联防',desc:'率领 60 盾兵、60 弓箭兵，摧毁敌方全部建筑。',toast:'敌军有 40 盾、50 弓且不能补员；攻击一处防区会引来其他守军增援。'},
   defend:{title:'抵御两波进攻',desc:'准备 120 秒，敌军 40+20 或 60+30 人。我方与第一波等量，保留建筑并全灭两波敌军。',toast:'趁准备期布防；第一波全灭后休整 30 秒迎接第二波。'}
 };
 let level='demo';
@@ -177,7 +177,10 @@ function updateHud(){
   $('build-options').hidden=!buildMenu;$('demolish').hidden=!building;
   $('demolish').disabled=!!state.result;
   $('base-training').hidden=observer||!building||building.type!=='base'||!!building.constructionPending;
-  for(const type of ['shield','archer','wilddog','pigeon'])$('base-train-'+type).disabled=!!state.result||!building||!!building.constructionPending||state.food<STATS[type].food||state.ore<STATS[type].ore;
+  const baseQueue=building?.type==='base'?state.queue.filter(q=>q.baseId===building.id):[];
+  $('base-queue-count').textContent=`${baseQueue.length} / ${TRAIN_QUEUE_LIMIT}`;
+  $('base-queue').textContent=baseQueue.length?baseQueue.map((q,i)=>`${i+1}. ${STATS[q.type].name}${i===0?` · ${Math.max(0,Math.ceil(q.remaining))} 秒`:''}`).join('\n'):'队列为空';
+  for(const type of ['shield','archer','wilddog','pigeon'])$('base-train-'+type).disabled=!!state.result||!building||!!building.constructionPending||baseQueue.length>=TRAIN_QUEUE_LIMIT||state.units.filter(u=>u.team===0&&u.hp>0).length+state.queue.length>=state.popCap||state.food<STATS[type].food||state.ore<STATS[type].ore;
 
   $('building-title').textContent=building?STATS[building.type].name:'建造菜单 · B';
   $('building-info').textContent=building?`生命 ${Math.ceil(building.hp)} / ${building.maxHp} · ${building.awaitingEviction?'等待区域内部队离开，随后自动施工':building.constructionPending?(building.activeBuilders?`施工 ${building.activeBuilders} 人 · 预计剩余 ${Math.ceil(building.constructionRemaining/building.activeBuilders)} 秒`:'等待施工人员到场 · 可选中部队右键补派'):building.type==='base'?'不产资源；6 格内最多治疗 5 人，每人每秒 +2 生命。提供 40 人口。初始基地拆除将判负。':building.type==='mine'?'每秒 +5 矿产':building.type==='factory'?`每秒 +${(state.map.foodPoints||[]).some(n=>Math.abs(building.x-n.x-.5)<1.5&&Math.abs(building.y-n.y-.5)<1.5)?'6 食物（食物点 ×2）':'3 食物'}`:'驻守弓箭兵 · 视野 15.6 / 射程 10.4'}`:buildType?`左键放置${STATS[buildType].name}，绿色可建 / 红色不可建。`:'C 基地 / R 采矿场 / Q 哨塔 / F 食物厂，选择后左键选址。';

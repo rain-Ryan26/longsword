@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Game,distance} from '../src/core.js';
+import {Game,distance,TRAIN_QUEUE_LIMIT} from '../src/core.js';
 import {findPath,walkable} from '../src/pathfinding.js';
 import {W,H,STATS} from '../src/data.js';
 const advance=(g,t)=>{for(let n=0;n<t/.05;n++)g.step(.05);};
@@ -20,6 +20,19 @@ test('S 停止移动与开火，新命令恢复',()=>{const g=new Game(),u=g.uni
 test('弓箭延迟伤害、护甲扣减和射击暴露',()=>{const g=new Game();g.units=[];const a=g.addUnit('archer',0,35,31),b=g.addUnit('shield',1,42,31);b.holdFire=true;g.updateVision();g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(b.hp,150);assert.ok(a.revealUntil>g.time);advance(g,.4);assert.equal(b.hp,139);});
 test('停火不使正常视野内单位隐身，射击暴露过期',()=>{const g=new Game();g.units=[];g.buildings=[];g.map.terrain.fill(0);const a=g.addUnit('shield',0,20,20),b=g.addUnit('shield',1,40,20);a.holdFire=true;g.updateVision();assert.equal(g.canSee(1,a),false);a.revealUntil=2;g.updateVision();assert.equal(g.canSee(1,a),true);g.time=3;g.updateVision();assert.equal(g.canSee(1,a),false);b.x=24;g.updateVision();assert.equal(g.canSee(1,a),true);});
 test('训练扣费、出兵与人口上限',()=>{const g=new Game();assert.equal(g.train('shield'),null);assert.equal(g.food,950);assert.equal(g.ore,990);advance(g,4.1);assert.equal(g.units.filter(u=>u.team===0).length,15);assert.equal(g.queue.length,0);g.food=0;assert.match(g.train('archer'),/资源不足/);g.food=10000;g.ore=10000;while(g.units.filter(u=>u.team===0).length<40)g.addUnit('shield',0,18,36);assert.match(g.train('shield'),/人口/);});
+test('每座基地独立并行训练，单基地队列上限为 50',()=>{
+  const g=new Game();g.units=[];g.food=g.ore=100000;
+  const first=g.buildings.find(b=>b.team===0&&b.type==='base'),second=g.addBuilding('base',0,30,50);
+  for(let n=0;n<TRAIN_QUEUE_LIMIT;n++)assert.equal(g.train('wilddog',first.id),null);
+  assert.match(g.train('wilddog',first.id),/所选基地训练队列已满/);
+  assert.equal(g.train('wilddog',second.id),null);
+  assert.equal(g.queue.filter(q=>q.baseId===first.id).length,50);
+  assert.equal(g.queue.filter(q=>q.baseId===second.id).length,1);
+  g.step(2.1);
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='wilddog').length,2);
+  assert.equal(g.queue.filter(q=>q.baseId===first.id).length,49);
+  assert.equal(g.queue.filter(q=>q.baseId===second.id).length,0);
+});
 test('BOT 巡逻沿路线移动',()=>{const g=new Game(),u=g.units.find(u=>u.role==='patrol'),p={x:u.x,y:u.y};advance(g,10);assert.ok(distance(u,p)>3);assert.ok(u.patrolIndex>0);});
 test('人口上限随基地数量叠加，施工中基地不提供人口',()=>{const g=new Game();g.units=[];g.food=10000;g.ore=10000;
   assert.equal(g.popCap(),40);
@@ -365,25 +378,23 @@ test('落地信鸽不能移动或被挤动，位置和攻击命令先起飞',()=
   }
 });
 
-test('进攻关卡：双方对称经济，AI 持续补员，摧毁敌方全部建筑获胜',()=>{
+test('进攻关卡：固定兵力、五塔联防、AI 不补员，摧毁敌方全部建筑获胜',()=>{
   const g=new Game('attack');
   assert.equal(g.level,'attack');
-  // 双方各有主基地、采矿场、食物厂
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='shield').length,60);
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='archer').length,60);
+  assert.equal(g.units.filter(u=>u.team===1&&u.type==='shield').length,40);
+  assert.equal(g.units.filter(u=>u.team===1&&u.type==='archer').length,50);
+  assert.equal(g.buildings.filter(b=>b.team===1&&b.type==='tower').length,5);
+  assert.equal(g.popCap(),120);assert.equal(g.popCap(1),120);
+  // 双方保留主基地、采矿场、食物厂
   for(const team of [0,1]){
     assert.equal(g.buildings.filter(b=>b.team===team&&b.type==='base').length,1);
     assert.equal(g.buildings.filter(b=>b.team===team&&b.type==='mine').length,1);
     assert.equal(g.buildings.filter(b=>b.team===team&&b.type==='factory').length,1);
   }
-  assert.equal(g.food,1000);assert.equal(g.ore,1000);
-  assert.equal(g.aiFood,1000);assert.equal(g.aiOre,1000);
-  // AI 经济随时间增长（采矿场 5/秒、食物厂 3/秒），暂停 AI 脚本隔离验证产出
-  g.ai=null;
-  const ore0=g.aiOre,food0=g.aiFood;advance(g,2);
-  assert.ok(Math.abs(g.aiOre-ore0-10)<1e-6);assert.ok(Math.abs(g.aiFood-food0-6)<1e-6);
-  // AI 会训练补员
-  const h=new Game('attack');
-  advance(h,10);
-  assert.ok(h.aiQueue.length>0||h.units.filter(u=>u.team===1).length>14);
+  advance(g,10);
+  assert.equal(g.aiQueue.length,0);assert.equal(g.units.filter(u=>u.team===1).length,90);
   // 仅摧毁主基地不获胜，需摧毁敌方全部建筑
   const enemyBase=g.buildings.find(b=>b.team===1&&b.primary);
   g.damage(enemyBase,99999);g.step(.05);
@@ -391,6 +402,18 @@ test('进攻关卡：双方对称经济，AI 持续补员，摧毁敌方全部�
   for(const b of g.buildings)if(b.team===1)g.damage(b,99999);
   g.step(.05);
   assert.equal(g.result,'victory');
+});
+
+test('进攻关卡：一处受袭从其他防区抽调至 24 人，威胁解除后归队',()=>{
+  const g=new Game('attack'),tower=g.buildings.find(b=>b.team===1&&b.type==='tower');
+  g.damage(tower,10);g.ai.timer=0;g.ai.update(g,.1);
+  const response=g.units.filter(u=>u.team===1&&u.role==='reinforce');
+  assert.equal(response.length,6);
+  assert.ok(response.every(u=>u.defenseSector!==tower.defenseSector));
+  assert.ok(response.every(u=>u.order==='attack'));
+  g.time=4;g.ai.timer=0;g.ai.update(g,.1);
+  assert.equal(g.units.filter(u=>u.team===1&&u.role==='reinforce').length,0);
+  assert.ok(response.every(u=>u.role==='guard'&&u.order==='move'));
 });
 
 for(const [randomValue,count] of [[.1,40],[.9,60]]){
@@ -463,21 +486,23 @@ test('防守重开重置波次，切换关卡清除波次状态',()=>{
   Object.assign(g,new Game('demo'));assert.equal(g.snapshot().defense,null);
 });
 
-test('进攻、防守固定 100 人口，双方训练计入排队人数',()=>{
+test('进攻固定 120、防守固定 100 人口，双方训练计入排队人数',()=>{
   for(const level of ['attack','defend']){
     const g=new Game(level);
-    assert.equal(g.snapshot().popCap,100);assert.equal(g.popCap(1),100);
+    const cap=level==='attack'?120:100;
+    assert.equal(g.snapshot().popCap,cap);assert.equal(g.popCap(1),cap);
     const extra=g.addBuilding('base',0,10,10);
-    assert.equal(g.popCap(),100);extra.hp=0;assert.equal(g.popCap(),100);
+    assert.equal(g.popCap(),cap);extra.hp=0;assert.equal(g.popCap(),cap);
     g.food=g.ore=g.aiFood=g.aiOre=10000;
+    g.units=[];
     for(const team of [0,1]){
       if(!g.buildings.some(b=>b.team===team&&b.type==='base'))g.addBuilding('base',team,84,32);
-      while(g.units.filter(u=>u.team===team).length<99)g.addUnit('shield',team,team?80:20,30);
+      while(g.units.filter(u=>u.team===team).length<cap-1)g.addUnit('shield',team,team?80:20,30);
       const train=()=>team?g.aiTrain('shield'):g.train('shield');
       assert.equal(train(),null);assert.match(train(),/人口/);
     }
     for(const b of g.buildings)if(b.type==='base')b.hp=0;
-    assert.equal(g.popCap(),100);assert.equal(g.popCap(1),100);
+    assert.equal(g.popCap(),cap);assert.equal(g.popCap(1),cap);
     assert.match(g.train('shield'),/基地/);assert.match(g.aiTrain('shield'),/基地/);
   }
 });
