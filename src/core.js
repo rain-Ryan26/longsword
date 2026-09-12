@@ -1,5 +1,5 @@
 import {STATS,createMap,createMapAttack,createMapBalanced,createMapDefend,DETECTION_MULTIPLIERS,MOVEMENT_MULTIPLIERS} from './data.js';
-import {findPath,nearestFree,walkable,buildingCells} from './pathfinding.js';
+import {findPath,nearestFree,walkable,buildingCells,spawnPoint} from './pathfinding.js';
 import {DefendAI,AssaultAI,BalancedAI} from './ai.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 export const TRAIN_QUEUE_LIMIT=50;
@@ -318,7 +318,8 @@ export class Game{
       if(q.remaining>0)continue;
       queue.splice(index,1);
       const n=this.units.filter(u=>u.team===team).length;
-      const u=this.addUnit(q.type,team,base.x+(team?-3:3)+(team?-1:1)*(n%3),base.y+3+Math.floor(n%9/3));
+      const p=spawnPoint(this.map,this.buildings,base,n);
+      const u=this.addUnit(q.type,team,p.x,p.y);
       if(team===1){u.home={x:u.x,y:u.y};u.role=this.level==='balanced'?'army':'guard';}
       if(base.rallyPoint)this.command([u.id],'move',base.rallyPoint,null,false,false,team);
     }

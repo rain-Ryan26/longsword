@@ -18,6 +18,22 @@ export function nearestFree(map,buildings,x,y,avoidMountains=false){
   }
   return null;
 }
+// 单位生成点：回血圈内优先平地（非山地/森林），富余时按 salt 错开连续出生的单位
+export function spawnPoint(map,buildings,base,salt=0){
+  const r=STATS.base?.healRange??6;
+  const W=map.width??96,H=map.height??64;
+  const bx=Math.round(base.x),by=Math.round(base.y);
+  const flats=[],anys=[];
+  for(let y=Math.max(0,by-r);y<=Math.min(H-1,by+r);y++)
+    for(let x=Math.max(0,bx-r);x<=Math.min(W-1,bx+r);x++){
+      const d=Math.hypot(x+.5-base.x,y+.5-base.y);
+      if(d>r||!walkable(map,buildings,x,y))continue;
+      (map.terrain[index(x,y,W)]===0?flats:anys).push({x:x+.5,y:y+.5,d});
+    }
+  const pool=(flats.length?flats:anys.length?anys:null)?.sort((a,b)=>a.d-b.d);
+  if(pool?.length)return pool[salt%pool.length];
+  return nearestFree(map,buildings,base.x,base.y)||{x:base.x,y:base.y};
+}
 class Heap{
   a=[];
   push(v){let i=this.a.length;this.a.push(v);while(i){const p=(i-1)>>1;if(this.a[p].f<=v.f)break;this.a[i]=this.a[p];i=p;}this.a[i]=v;}
