@@ -200,6 +200,7 @@ function updateHud(){
   if(!state)return;if(game)state=game.snapshot();
   for(const id of selected)if(!state.units.some(u=>u.id===id))selected.delete(id);
   $('food').textContent=Math.floor(state.food);$('ore').textContent=Math.floor(state.ore);$('population').textContent=`${state.units.filter(u=>u.team===0).length} / ${state.popCap}`;
+  const botView=view===2;$('bot-resources').hidden=!botView;if(botView){$('bot-food').textContent=Math.floor(state.aiFood);$('bot-ore').textContent=Math.floor(state.aiOre);}
   const seconds=Math.floor(state.time);$('clock').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
   $('pause').textContent=paused?'继续':'暂停';$('pause').classList.toggle('active',paused);$('speed').textContent=speed+'×';
   const enemyAlive=state.buildings.filter(b=>b.team===1&&b.hp>0).length,enemyUnits=state.units.filter(u=>u.team===1&&u.hp>0).length,lvl=state.level||level;

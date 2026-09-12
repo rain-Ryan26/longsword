@@ -150,6 +150,10 @@ export class BalancedAI{
   planBuilding(game,own,units,base){
     const count=type=>own.filter(b=>b.type===type).length;
     const cap=own.reduce((n,b)=>n+(!b.constructionPending?(STATS[b.type].pop||0):0),0);
+    const covers=(b,n)=>{
+      const r=STATS[b.type].halfSize||2;
+      return n.x>=Math.round(b.x-r)&&n.x<=Math.round(b.x+r)-1&&n.y>=Math.round(b.y-r)&&n.y<=Math.round(b.y+r)-1;
+    };
     const nearby=type=>{
       for(const r of [7,11,15])for(const [dx,dy] of [[-1,0],[0,1],[-1,1],[1,0],[0,-1],[1,1]]){
         const p=game.placement(type,{x:base.x+dx*r,y:base.y+dy*r},1);
@@ -160,18 +164,42 @@ export class BalancedAI{
     const resource=(type,nodes)=>{
       for(const n of [...nodes].sort((a,b)=>distance(a,base)-distance(b,base))){
         // 已被己方对应建筑覆盖的食物点不重复建设。
-        if(own.some(b=>b.type===type&&Math.abs(b.x-n.x-.5)<2&&Math.abs(b.y-n.y-.5)<2))continue;
+        if(own.some(b=>b.type===type&&covers(b,n)))continue;
         const p=game.placement(type,{x:n.x+.5,y:n.y+.5},1);
         if(!p.error)return {...p,type};
+      }
+      return null;
+    };
+    const towerAt=group=>{
+      const center={x:(group.mine.x+group.food.x)/2+0.5,y:(group.mine.y+group.food.y)/2+0.5};
+      if(own.some(b=>b.type==='tower'&&distance(b,center)<=8))return null;
+      for(const [dx,dy] of [[0,0],[5,0],[0,5],[-5,0],[0,-5],[5,5],[-5,5],[5,-5],[-5,-5]]){
+        const p=game.placement('tower',{x:center.x+dx,y:center.y+dy},1);
+        if(!p.error)return {...p,type:'tower'};
       }
       return null;
     };
     if(!count('factory'))return resource('factory',game.map.foodPoints)||nearby('factory');
     if(!count('mine'))return resource('mine',game.map.resources);
     if(units.length+game.aiQueue.length>=cap-8)return nearby('base');
-    if(count('factory')<2)return resource('factory',game.map.foodPoints)||nearby('factory');
-    if(count('mine')<3){const mine=resource('mine',game.map.resources);if(mine)return mine;}
-    if(count('factory')<4)return resource('factory',game.map.foodPoints)||nearby('factory');
+    const playerSpawn=game.map.spawns[0],enemySpawn=game.map.spawns[1];
+    const groups=game.map.resources.map((mine,i)=>({mine,food:game.map.foodPoints[i]}))
+      .filter(g=>g.food&&distance(g.mine,enemySpawn)<distance(g.mine,playerSpawn))
+      .sort((a,b)=>distance(a.mine,enemySpawn)-distance(b.mine,enemySpawn));
+    for(const group of groups){
+      if(!own.some(b=>b.type==='mine'&&covers(b,group.mine))){
+        const mine=game.placement('mine',{x:group.mine.x+.5,y:group.mine.y+.5},1);
+        if(!mine.error)return {...mine,type:'mine'};
+        continue;
+      }
+      if(!own.some(b=>b.type==='factory'&&covers(b,group.food))){
+        const factory=game.placement('factory',{x:group.food.x+.5,y:group.food.y+.5},1);
+        if(!factory.error)return {...factory,type:'factory'};
+        continue;
+      }
+      const tower=towerAt(group);
+      if(tower)return tower;
+    }
     return null;
   }
 }

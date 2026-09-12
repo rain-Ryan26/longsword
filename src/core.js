@@ -123,7 +123,8 @@ export class Game{
   updateVision(){
     this.visionVersion++;
     for(const v of this.visible)v.fill(0);
-    const circle=(team,x,y,r)=>{for(let yy=Math.max(0,Math.floor(y-r));yy<=Math.min(this.map.height-1,Math.ceil(y+r));yy++)for(let xx=Math.max(0,Math.floor(x-r));xx<=Math.min(this.map.width-1,Math.ceil(x+r));xx++)if((xx+.5-x)**2+(yy+.5-y)**2<=r*r)this.visible[team][yy*this.map.width+xx]=1;};
+    // 森林格对飞行侦察（信鸽）只累加为已探索：能看见森林地形，但看不到藏在其中的敌人；其余单位正常照亮。
+    const circle=(team,x,y,r,pigeonOnly=false)=>{for(let yy=Math.max(0,Math.floor(y-r));yy<=Math.min(this.map.height-1,Math.ceil(y+r));yy++)for(let xx=Math.max(0,Math.floor(x-r));xx<=Math.min(this.map.width-1,Math.ceil(x+r));xx++)if((xx+.5-x)**2+(yy+.5-y)**2<=r*r){const idx=yy*this.map.width+xx;if(pigeonOnly&&this.map.terrain[idx]===2)this.explored[team][idx]=1;else this.visible[team][idx]=1;}};
     // 陆地视野按视线消耗：以侦测距离为预算，每进入一格消耗 1/侦测系数（森林贵、山地省）
     const sight=(team,x,y,budget)=>{
       const vis=this.visible[team],terrain=this.map.terrain;
@@ -141,7 +142,7 @@ export class Game{
         }
       }
     };
-    for(const e of this.entities()){if(e.building&&e.constructionPending)continue;const r=this.detectionRange(e);if(this.isFlying(e))circle(e.team,e.x,e.y,r);else sight(e.team,e.x,e.y,r);if(e.revealUntil>this.time)circle(1-e.team,e.x,e.y,2);}
+    for(const e of this.entities()){if(e.building&&e.constructionPending)continue;const r=this.detectionRange(e);if(this.isFlying(e))circle(e.team,e.x,e.y,r,true);else sight(e.team,e.x,e.y,r);if(e.revealUntil>this.time)circle(1-e.team,e.x,e.y,2);}
     for(let t=0;t<2;t++)for(let i=0;i<this.map.width*this.map.height;i++)if(this.visible[t][i])this.explored[t][i]=1;
   }
   command(ids,kind,point,targetId=null,append=false,allowMountains=false,team=0){
@@ -505,5 +506,5 @@ export class Game{
       for(const [u,sign]of [[a,1],[b,-1]]){if(STATS[u.type].air)continue;const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
     }
   }
-  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,level:this.level,defense:this.defense?{...this.defense,sizes:[...this.defense.sizes]}:null,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,popCap:this.popCap(),queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}
+  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,level:this.level,defense:this.defense?{...this.defense,sizes:[...this.defense.sizes]}:null,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,aiFood:this.aiFood,aiOre:this.aiOre,popCap:this.popCap(),queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}
 }

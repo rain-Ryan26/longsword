@@ -94,18 +94,19 @@ test('AI 达到四十五名主力才主动出击，重损后回防',()=>{
   assert.ok(g.units.filter(u=>u.team===1).every(u=>u.aiOrderKey.startsWith('defend:')));
 });
 
-test('自然经济长局：探图、建造完工、扩人口、积兵进攻与胜负',()=>{
-  const g=new Game('balanced');let scouted=false,pushed=false,builtMine=false;
+test('自然经济长局：探图、多点扩张、哨塔、扩人口、积兵进攻与胜负',()=>{
+  const g=new Game('balanced');let scouted=false,pushed=false,builtMine=false,builtTower=false;
   for(let i=0;i<6000&&!g.result;i++){
     g.step(.1);
     scouted ||=g.units.some(u=>u.team===1&&u.type==='wilddog'&&distance(u,g.map.spawns[1])>35);
     pushed ||=g.ai.attacking;
     builtMine ||=g.buildings.filter(b=>b.team===1&&b.type==='mine').length>1;
+    builtTower ||=g.buildings.some(b=>b.team===1&&b.type==='tower'&&!b.constructionPending);
   }
   assert.ok(scouted);assert.ok(pushed);assert.ok(builtMine);
+  assert.ok(builtTower);
   assert.ok(g.buildings.filter(b=>b.team===1&&b.type==='base'&&!b.constructionPending).length>=2);
   assert.ok(g.buildings.filter(b=>b.team===1&&b.type==='factory'&&!b.constructionPending).length>=2);
-  assert.ok(!g.buildings.some(b=>b.team===1&&b.type==='tower'));
   assert.equal(g.result,'defeat','玩家不操作时，BOT 应能完成进攻摧毁主基地');
   const h=new Game('balanced');h.ai=null;
   h.buildings.find(b=>b.team===1&&b.primary).hp=0;h.step(.1);assert.equal(h.result,null);
