@@ -96,6 +96,7 @@ export class Game{
     if(this.result)return;this.revision++;
     const selected=this.units.filter(u=>ids.includes(u.id)&&u.team===team&&u.hp>0),cols=Math.ceil(Math.sqrt(selected.length));
     selected.forEach((u,i)=>{
+      if(kind==='stop'){u.holdFire=true;u.targetId=null;return;}
       if(STATS[u.type].air&&!this.isFlying(u)&&(kind==='move'||kind==='attack')){u.flying=true;if(u.x<5||u.x>this.map.width-5||u.y<5||u.y>this.map.height-5)u.facing=Math.atan2(this.map.height/2-u.y,this.map.width/2-u.x);}
       u.buildingId=null;u.landing=null;u.orbit=null;u.landingEscape=false;
       if(!append){u.allowMountains=kind!=='stop'&&allowMountains;u.allowForests=kind!=='stop'&&allowMountains;}
@@ -349,13 +350,12 @@ export class Game{
         }else{u.path=[];u.facing=Math.atan2(b.y-u.y,b.x-u.x);}
         continue;
       }
-      if(u.holdFire)continue;
-      let target=entityById.get(u.targetId);
+      let target=u.holdFire?null:entityById.get(u.targetId);
       if(target&&(target.hp<=0||!this.canSee(u.team,target)||!this.canEngage(u,target)))target=null;
       if(target&&u.role==='guard'&&distance(u,u.home)>11)target=null;
       if(target&&u.role==='patrol'&&distance(u,target)>14)target=null;
       if(!target){u.targetId=null;
-        if(u.order!=='move'){
+        if(!u.holdFire&&u.order!=='move'){
           target=this.acquireTarget(u,entities,{guard:true,preferUnits:true});
           if(target)u.targetId=target.id;
         }

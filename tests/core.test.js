@@ -122,7 +122,7 @@ test('A* 绕过建筑且不斜穿墙角',()=>{
 });
 test('建筑墙隔断时不可达终点安全返回空路径',()=>{const map={terrain:new Array(W*H).fill(0)},wall=[];for(let y=0;y<=H;y+=3)wall.push({x:4.5,y,hp:100});assert.deepEqual(findPath(map,wall,{x:1.5,y:1.5},{x:8.5,y:5.5}),[]);});
 test('迷雾按阵营隔离，探索记录保留',()=>{const g=new Game(),enemy=g.units.find(u=>u.team===1),u=g.units.find(u=>u.team===0);assert.equal(g.canSee(0,enemy),false);u.x=enemy.x-3;u.y=enemy.y;g.updateVision();assert.equal(g.canSee(0,enemy),true);const i=Math.floor(enemy.y)*W+Math.floor(enemy.x);u.x=19;u.y=27;g.updateVision();assert.equal(g.visible[0][i],0);assert.equal(g.explored[0][i],1);});
-test('S 停止移动与开火，新命令恢复',()=>{const g=new Game(),u=g.units.find(u=>u.team===0);g.command([u.id],'move',{x:35,y:32});advance(g,1);g.command([u.id],'stop');const p={x:u.x,y:u.y};advance(g,2);assert.ok(distance(u,p)<.01);assert.equal(u.holdFire,true);assert.equal(u.targetId,null);g.command([u.id],'attack',{x:37,y:32});advance(g,2);assert.equal(u.holdFire,false);assert.ok(distance(u,p)>1.5);});
+test('S 停火不中断移动，新命令恢复交战',()=>{const g=new Game(),u=g.units.find(u=>u.team===0);g.command([u.id],'move',{x:35,y:32});advance(g,1);g.command([u.id],'stop');const p={x:u.x,y:u.y};advance(g,2);assert.equal(u.holdFire,true);assert.equal(u.targetId,null);assert.ok(distance(u,p)>1.5);g.command([u.id],'attack',{x:37,y:32});advance(g,2);assert.equal(u.holdFire,false);assert.ok(distance(u,p)>1.5);});
 test('弓箭延迟伤害、护甲扣减和射击暴露',()=>{
   const g=new Game();g.units=[];const a=g.addUnit('archer',0,35,31),b=g.addUnit('shield',1,42,31),hp=b.hp;b.holdFire=true;g.updateVision();g.step(.05);
   assert.equal(g.projectiles.length,1);assert.equal(b.hp,hp);assert.ok(a.revealUntil>g.time);advance(g,.4);
@@ -272,16 +272,20 @@ test('追加路径点按顺序行进，完成后警戒',()=>{
   assert.ok(visitedA&&visitedB);assert.ok(distance(u,c)<.8);
   assert.equal(u.goal,null);assert.deepEqual(u.waypoints,[]);assert.equal(u.order,'idle');
 });
-test('普通移动、攻击和停止清空待经点，追加不会覆盖正在移动的目标',()=>{
-  for(const kind of ['move','attack','stop']){
+test('普通移动、攻击清空待经点，S 停火不中断移动',()=>{
+  for(const kind of ['move','attack']){
     const g=new Game();g.units=[];const u=g.addUnit('shield',0,30,30);
     g.command([u.id],'move',{x:35.5,y:30.5});advance(g,.3);
     const current={...u.goal};g.command([u.id],'move',{x:40.5,y:35.5},null,true);
     assert.deepEqual(u.goal,current);assert.equal(u.waypoints.length,1);
     g.command([u.id],kind,{x:28.5,y:35.5});assert.deepEqual(u.waypoints,[]);
-    if(kind==='stop'){assert.equal(u.goal,null);assert.equal(u.holdFire,true);}
-    else assert.deepEqual(u.goal,{x:28.5,y:35.5});
+    assert.deepEqual(u.goal,{x:28.5,y:35.5});
   }
+  const g=new Game();g.units=[];const u=g.addUnit('shield',0,30,30);
+  g.command([u.id],'move',{x:35.5,y:30.5});advance(g,.3);
+  const goal={...u.goal};g.command([u.id],'move',{x:40.5,y:35.5},null,true);
+  g.command([u.id],'stop');
+  assert.deepEqual(u.goal,goal);assert.equal(u.waypoints.length,1);assert.equal(u.holdFire,true);assert.equal(u.targetId,null);
 });
 
 
@@ -331,8 +335,8 @@ test('山地中可出山，出山后绕开下一片山地',()=>{
   }
   assert.ok(exited);assert.ok(distance(u,{x:40.5,y:31.5})<.8);
 });
-test('强制穿山随追加路线保留，普通命令和停止清除',()=>{
-  for(const kind of ['move','attack','stop']){
+test('强制穿山随追加路线保留，普通命令清除',()=>{
+  for(const kind of ['move','attack']){
     const g=new Game(),u=g.units.find(u=>u.team===0);
     g.command([u.id],'move',{x:44.5,y:16.5},null,false,true);
     g.command([u.id],'move',{x:58.5,y:16.5},null,true);assert.equal(u.allowMountains,true);
@@ -531,12 +535,12 @@ test('无敌人时单位间默认距离增大，交战中收缩为轻微分离',
   a.holdFire=true;b.holdFire=true;
   for(let i=0;i<200;i++)g.step(.05);
   assert.ok(distance(a,b)>=1.59,`无敌人时单位间距应增大，实际 ${distance(a,b).toFixed(3)}`);
-  // 交战（有目标）中：间距维持在轻微分离范围，不再外扩
+  // 非待命（有移动任务）中：间距维持在轻微分离范围，不再外扩
   const h=new Game();h.units=[];h.map.terrain.fill(0);
   const c=h.addUnit('shield',0,30,30),d=h.addUnit('shield',0,30.2,30);
-  c.holdFire=true;d.holdFire=true;c.targetId=999;d.targetId=999;
+  c.order='move';d.order='move';
   for(let i=0;i<200;i++)h.step(.05);
-  assert.ok(distance(c,d)<1.0,`交战中单位间距应收缩，实际 ${distance(c,d).toFixed(3)}`);
+  assert.ok(distance(c,d)<1.0,`非待命单位间距应收缩，实际 ${distance(c,d).toFixed(3)}`);
 });
 test('落地信鸽不能移动或被挤动，位置和攻击命令先起飞',()=>{
   for(const kind of ['move','attack']){

@@ -95,7 +95,7 @@ $('choose-level').onclick=()=>{if(observer)return;$('level-select').hidden=false
 for(const card of document.querySelectorAll('.level-card'))card.onclick=()=>{
   if(observer)return;level=card.dataset.level;$('level-select').hidden=true;restart();toast(LEVELS[level].toast);
 };
-function stop(){if(observer)return;closeBuild();game.command([...selected],'stop');setAttack(false);toast(selected.size?'已停火；飞行单位继续盘旋':'请先选择部队');}
+function stop(){if(observer)return;closeBuild();game.command([...selected],'stop');setAttack(false);toast(selected.size?'已停火':'请先选择部队');}
 for(const type of TRAINABLE_TYPES)$('base-train-'+type).onclick=()=>{
   if(observer)return;
   const produced=game.productionType(type),error=game.train(type,interaction.selectedBuilding);toast(error||`${STATS[produced].name}已加入所选基地训练队列`);updateHud();
