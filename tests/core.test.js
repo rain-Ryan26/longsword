@@ -10,6 +10,55 @@ test('基地、采矿场和食物厂采用当前建造成本',()=>{
     [['base',400,300],['mine',200,100],['factory',200,100]]
   );
 });
+test('铁盾兵和强弩兵继承基础兵种数值并应用强化与矿产加价',()=>{
+  assert.deepEqual({...STATS.ironShield,name:null,armor:null,damage:null,ore:null},{...STATS.shield,name:null,armor:null,damage:null,ore:null});
+  assert.equal(STATS.shield.armor,4);assert.equal(STATS.ironShield.armor,7);assert.equal(STATS.ironShield.damage,STATS.shield.damage+1);assert.equal(STATS.ironShield.ore,STATS.shield.ore+20);
+  assert.deepEqual({...STATS.crossbow,name:null,damage:null,ore:null},{...STATS.archer,name:null,damage:null,ore:null});
+  assert.equal(STATS.crossbow.damage,STATS.archer.damage+7);assert.equal(STATS.crossbow.ore,STATS.archer.ore+20);
+});
+test('基地可训练铁盾兵和强弩兵，强弩使用远程弹道且铁盾按 7 点护甲减伤',()=>{
+  const g=new Game();g.units=[];g.food=g.ore=1000;
+  assert.equal(g.train('ironShield'),null);assert.equal(g.train('crossbow'),null);
+  assert.equal(g.food,900);assert.equal(g.ore,940);advance(g,8.1);
+  assert.equal(g.units.filter(u=>u.type==='ironShield').length,1);assert.equal(g.units.filter(u=>u.type==='crossbow').length,1);
+  g.units=[];const attacker=g.addUnit('crossbow',0,30,30),target=g.addUnit('ironShield',1,36,30);target.holdFire=true;g.updateVision();
+  const hp=target.hp;g.step(.05);assert.equal(g.projectiles.length,1);assert.deepEqual(g.consumeAudioEvents(),[]);assert.equal(target.hp,hp);advance(g,.4);assert.equal(target.hp,hp-15);
+  assert.ok(attacker.revealUntil>g.time-.5);
+});
+test('机械数值、训练费用与蒸汽步行机炮击符合设计',()=>{
+  assert.equal(STATS.armoredCar.speed,STATS.wilddog.speed-.3);assert.equal(STATS.armoredCar.cooldown,STATS.crossbow.cooldown/2);
+  assert.equal(STATS.armoredCar.damage,STATS.crossbow.damage);assert.equal(STATS.armoredCar.range,STATS.crossbow.range);
+  assert.deepEqual([STATS.armoredCar.food,STATS.armoredCar.ore,STATS.armoredCar.armor,STATS.armoredCar.hp],[150,150,10,250]);
+  assert.deepEqual([STATS.steamWalker.food,STATS.steamWalker.ore,STATS.steamWalker.armor,STATS.steamWalker.hp],[300,500,20,400]);
+  assert.equal(STATS.steamWalker.damage,70);assert.equal(STATS.steamWalker.cooldown,1);assert.ok(Math.abs(STATS.steamWalker.speed-(STATS.shield.speed-.2))<1e-9);
+  assert.equal(STATS.steamWalker.vision,STATS.archer.vision+3);assert.equal(STATS.steamWalker.range,STATS.archer.range+3);
+  assert.equal(STATS.steamWalker.splashDamage,20);assert.equal(STATS.steamWalker.splashRadius,2);assert.equal(STATS.steamWalker.projectileKind,'cannonball');
+  assert.equal(STATS.archer.audioEvent,undefined);assert.equal(STATS.crossbow.audioEvent,undefined);assert.equal(STATS.armoredCar.audioEvent,undefined);assert.equal(STATS.steamWalker.audioEvent,'cannonFire');
+  const g=new Game();g.units=[];g.food=g.ore=1000;
+  assert.equal(g.train('armoredCar'),null);assert.equal(g.train('steamWalker'),null);assert.equal(g.food,550);assert.equal(g.ore,350);
+  g.queue=[];g.units=[];const attacker=g.addUnit('steamWalker',0,30,30),target=g.addUnit('armoredCar',1,39,30);target.holdFire=true;
+  const nearby=g.addBuilding('camp',1,40.5,30),outside=g.addBuilding('camp',1,42,30),friendly=g.addBuilding('camp',0,39,31.5);
+  const hp=target.hp,nearbyHp=nearby.hp,outsideHp=outside.hp,friendlyHp=friendly.hp;g.updateVision();g.step(.05);
+  assert.equal(g.projectiles.length,1);assert.equal(g.projectiles[0].kind,'cannonball');assert.deepEqual(g.consumeAudioEvents(),['cannonFire']);assert.equal(target.hp,hp);
+  advance(g,.5);assert.equal(target.hp,hp-70);assert.equal(nearby.hp,nearbyHp-17);assert.equal(outside.hp,outsideHp);assert.equal(friendly.hp,friendlyHp);
+  assert.ok(g.effects.some(e=>e.kind==='explosion'&&e.radius===2));assert.ok(attacker.revealUntil>g.time-.6);
+  const silent=new Game();silent.units=[];const car=silent.addUnit('armoredCar',0,30,30),enemy=silent.addUnit('shield',1,36,30);enemy.holdFire=true;silent.updateVision();silent.step(.05);
+  assert.equal(silent.projectiles.length,1);assert.deepEqual(silent.consumeAudioEvents(),[]);assert.ok(car.revealUntil>silent.time);
+});
+test('机械采用更大的碰撞半径，蒸汽步行机大于铁甲车',()=>{
+  assert.ok(STATS.steamWalker.visualSize>STATS.armoredCar.visualSize);assert.ok(STATS.armoredCar.visualSize>1);
+  assert.ok(STATS.steamWalker.collisionRadius>STATS.armoredCar.collisionRadius);assert.ok(STATS.armoredCar.collisionRadius>.425);
+  const g=new Game();g.units=[];g.map.terrain.fill(0);
+  const car=g.addUnit('armoredCar',0,30,30),walker=g.addUnit('steamWalker',0,30.1,30);car.order=walker.order='move';
+  for(let i=0;i<100;i++)g.separate(.05);
+  assert.ok(distance(car,walker)>=STATS.armoredCar.collisionRadius+STATS.steamWalker.collisionRadius-.01);
+});
+test('所有近战兵种攻击均不产生音效事件',()=>{
+  for(const type of ['shield','ironShield','wilddog']){
+    const g=new Game();g.units=[];g.map.terrain.fill(0);const attacker=g.addUnit(type,0,30,30),target=g.addUnit('shield',1,31,30);target.holdFire=true;g.updateVision();g.step(.05);
+    assert.ok(target.hp<target.maxHp);assert.deepEqual(g.consumeAudioEvents(),[],`${STATS[attacker.type].name}不应产生音效`);
+  }
+});
 test('A* 绕过建筑且不斜穿墙角',()=>{
   const g=new Game();g.addBuilding('camp',1,44,16);const path=findPath(g.map,g.buildings,{x:30,y:16},{x:58,y:16});assert.ok(path.length>0);assert.ok(path.some(p=>Math.abs(p.y-16)>2));
   let prev={x:30,y:16};for(const p of path){assert.ok(walkable(g.map,g.buildings,Math.floor(p.x),Math.floor(p.y)));const x=Math.floor(prev.x),y=Math.floor(prev.y),nx=Math.floor(p.x),ny=Math.floor(p.y);if(x!==nx&&y!==ny){assert.ok(walkable(g.map,g.buildings,nx,y));assert.ok(walkable(g.map,g.buildings,x,ny));}prev=p;}
@@ -17,9 +66,21 @@ test('A* 绕过建筑且不斜穿墙角',()=>{
 test('建筑墙隔断时不可达终点安全返回空路径',()=>{const map={terrain:new Array(W*H).fill(0)},wall=[];for(let y=0;y<=H;y+=3)wall.push({x:4.5,y,hp:100});assert.deepEqual(findPath(map,wall,{x:1.5,y:1.5},{x:8.5,y:5.5}),[]);});
 test('迷雾按阵营隔离，探索记录保留',()=>{const g=new Game(),enemy=g.units.find(u=>u.team===1),u=g.units.find(u=>u.team===0);assert.equal(g.canSee(0,enemy),false);u.x=enemy.x-3;u.y=enemy.y;g.updateVision();assert.equal(g.canSee(0,enemy),true);const i=Math.floor(enemy.y)*W+Math.floor(enemy.x);u.x=19;u.y=27;g.updateVision();assert.equal(g.visible[0][i],0);assert.equal(g.explored[0][i],1);});
 test('S 停止移动与开火，新命令恢复',()=>{const g=new Game(),u=g.units.find(u=>u.team===0);g.command([u.id],'move',{x:35,y:32});advance(g,1);g.command([u.id],'stop');const p={x:u.x,y:u.y};advance(g,2);assert.ok(distance(u,p)<.01);assert.equal(u.holdFire,true);assert.equal(u.targetId,null);g.command([u.id],'attack',{x:37,y:32});advance(g,2);assert.equal(u.holdFire,false);assert.ok(distance(u,p)>1.5);});
-test('弓箭延迟伤害、护甲扣减和射击暴露',()=>{const g=new Game();g.units=[];const a=g.addUnit('archer',0,35,31),b=g.addUnit('shield',1,42,31);b.holdFire=true;g.updateVision();g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(b.hp,150);assert.ok(a.revealUntil>g.time);advance(g,.4);assert.equal(b.hp,139);});
+test('弓箭延迟伤害、护甲扣减和射击暴露',()=>{
+  const g=new Game();g.units=[];const a=g.addUnit('archer',0,35,31),b=g.addUnit('shield',1,42,31),hp=b.hp;b.holdFire=true;g.updateVision();g.step(.05);
+  assert.equal(g.projectiles.length,1);assert.equal(b.hp,hp);assert.ok(a.revealUntil>g.time);advance(g,.4);
+  assert.equal(b.hp,hp-Math.max(1,STATS.archer.damage-STATS.shield.armor));
+});
 test('停火不使正常视野内单位隐身，射击暴露过期',()=>{const g=new Game();g.units=[];g.buildings=[];g.map.terrain.fill(0);const a=g.addUnit('shield',0,20,20),b=g.addUnit('shield',1,40,20);a.holdFire=true;g.updateVision();assert.equal(g.canSee(1,a),false);a.revealUntil=2;g.updateVision();assert.equal(g.canSee(1,a),true);g.time=3;g.updateVision();assert.equal(g.canSee(1,a),false);b.x=24;g.updateVision();assert.equal(g.canSee(1,a),true);});
 test('训练扣费、出兵与人口上限',()=>{const g=new Game();assert.equal(g.train('shield'),null);assert.equal(g.food,950);assert.equal(g.ore,990);advance(g,4.1);assert.equal(g.units.filter(u=>u.team===0).length,15);assert.equal(g.queue.length,0);g.food=0;assert.match(g.train('archer'),/资源不足/);g.food=10000;g.ore=10000;while(g.units.filter(u=>u.team===0).length<40)g.addUnit('shield',0,18,36);assert.match(g.train('shield'),/人口/);});
+test('点击队列对应的取消逻辑会移除指定单位并全额退款',()=>{
+  const g=new Game(),base=g.buildings.find(b=>b.team===0&&b.type==='base');
+  assert.equal(g.train('shield',base.id),null);assert.equal(g.train('archer',base.id),null);advance(g,1);
+  assert.equal(g.cancelTraining(base.id,0),null);
+  assert.deepEqual(g.queue.filter(q=>q.baseId===base.id).map(q=>q.type),['archer']);
+  assert.equal(g.food,950);assert.equal(g.ore,990);
+  assert.match(g.cancelTraining(base.id,8),/不存在/);
+});
 test('基地集结点独立保存，新单位出兵后自动前往',()=>{
   const g=new Game(),base=g.buildings.find(b=>b.team===0&&b.type==='base'),before=new Set(g.units.map(u=>u.id));
   assert.equal(g.setRallyPoint(base.id,{x:35,y:32}),null);
@@ -262,10 +323,10 @@ test('施工点位沿建筑四边生成，建筑中心 x≠y 时不再偏移',()
 test('哨塔固定驻兵使用增强射程、视野和弹道，拆除后停止攻击',()=>{
   const g=new Game();g.units=[];g.map.terrain.fill(0);
   const tower=g.addBuilding('tower',0,35,32),enemy=g.addUnit('shield',1,43,32);enemy.x=43;enemy.y=32;enemy.holdFire=true;
-  assert.equal(tower.hp,STATS.shield.hp*3);assert.equal(g.detectionRange(tower),STATS.archer.vision*1.3);
+  assert.equal(tower.hp,STATS.tower.hp);assert.equal(g.detectionRange(tower),STATS.archer.vision*1.3);
   assert.equal(STATS.tower.range,STATS.archer.range*1.3);g.updateVision();
-  g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(enemy.hp,150);
-  advance(g,.5);assert.equal(enemy.hp,139);assert.equal(tower.x,35);assert.equal(g.units.length,1);
+  const hp=enemy.hp;g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(enemy.hp,hp);
+  advance(g,.5);assert.equal(enemy.hp,hp-Math.max(1,STATS.tower.damage-STATS.shield.armor));assert.equal(tower.x,35);assert.equal(g.units.length,1);
   enemy.x=46;g.projectiles=[];tower.cooldown=0;g.updateVision();g.step(.05);assert.equal(g.projectiles.length,0);
   enemy.x=43;assert.equal(g.demolish(tower.id),null);g.step(.05);assert.equal(g.projectiles.length,0);
 });
@@ -300,8 +361,8 @@ test('弓箭兵对空射程 2、伤害减半，对地不变',()=>{
   pigeon.x=31.5;g.step(.05);advance(g,.1);
   assert.equal(pigeon.hp,STATS.pigeon.hp-7.5); // 对空伤害减半 15/2=7.5
   pigeon.hp=0; // 移除空中目标后对地伤害不变
-  const ground=g.addUnit('shield',1,31.5,30);ground.holdFire=true;a.cooldown=0;a.targetId=null;
-  advance(g,.4);assert.equal(ground.hp,139); // 对地 15 - 护甲 4
+  const ground=g.addUnit('shield',1,31.5,30),hp=ground.hp;ground.holdFire=true;a.cooldown=0;a.targetId=null;
+  advance(g,.4);assert.equal(ground.hp,hp-Math.max(1,STATS.archer.damage-STATS.shield.armor));
 });
 test('哨塔可对空：射程 2、伤害减半',()=>{
   const g=new Game();g.units=[];g.map.terrain.fill(0);
@@ -367,7 +428,7 @@ test('无敌人时单位间默认距离增大，交战中收缩为轻微分离',
   const a=g.addUnit('shield',0,30,30),b=g.addUnit('shield',0,30.2,30);
   a.holdFire=true;b.holdFire=true;
   for(let i=0;i<200;i++)g.step(.05);
-  assert.ok(distance(a,b)>=1.39,`无敌人时单位间距应增大，实际 ${distance(a,b).toFixed(3)}`);
+  assert.ok(distance(a,b)>=1.59,`无敌人时单位间距应增大，实际 ${distance(a,b).toFixed(3)}`);
   // 交战（有目标）中：间距维持在轻微分离范围，不再外扩
   const h=new Game();h.units=[];h.map.terrain.fill(0);
   const c=h.addUnit('shield',0,30,30),d=h.addUnit('shield',0,30.2,30);
@@ -396,7 +457,7 @@ test('进攻关卡：固定兵力、五塔联防、AI 不补员，摧毁敌方�
   assert.equal(g.units.filter(u=>u.team===1&&u.type==='shield').length,40);
   assert.equal(g.units.filter(u=>u.team===1&&u.type==='archer').length,50);
   assert.equal(g.buildings.filter(b=>b.team===1&&b.type==='tower').length,5);
-  assert.equal(g.popCap(),120);assert.equal(g.popCap(1),120);
+  assert.equal(g.popCap(),200);assert.equal(g.popCap(1),200);
   // 双方保留主基地、采矿场、食物厂
   for(const team of [0,1]){
     assert.equal(g.buildings.filter(b=>b.team===team&&b.type==='base').length,1);
@@ -496,10 +557,10 @@ test('防守重开重置波次，切换关卡清除波次状态',()=>{
   Object.assign(g,new Game('demo'));assert.equal(g.snapshot().defense,null);
 });
 
-test('进攻固定 120、防守固定 100 人口，双方训练计入排队人数',()=>{
+test('进攻固定 200、防守固定 100 人口，双方训练计入排队人数',()=>{
   for(const level of ['attack','defend']){
     const g=new Game(level);
-    const cap=level==='attack'?120:100;
+    const cap=level==='attack'?200:100;
     assert.equal(g.snapshot().popCap,cap);assert.equal(g.popCap(1),cap);
     const extra=g.addBuilding('base',0,10,10);
     assert.equal(g.popCap(),cap);extra.hp=0;assert.equal(g.popCap(),cap);

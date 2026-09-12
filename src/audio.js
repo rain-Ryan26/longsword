@@ -4,7 +4,7 @@ const defaults={master:60,effects:70,muted:false};
 export class AudioManager{
   constructor(){
     this.settings=this.load();this.unlocked=false;this.lastPlayed=new Map();
-    this.sources={shieldAttack:'assets/audio/shield-attack.ogg',archerFire:'assets/audio/archer-fire.mp3'};
+    this.sources={cannonFire:'assets/audio/archer-fire.mp3'};
     document.addEventListener('pointerdown',()=>this.unlock(),{once:true});
   }
   load(){try{return {...defaults,...JSON.parse(localStorage.getItem(STORAGE_KEY))};}catch{return {...defaults};}}

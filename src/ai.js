@@ -8,7 +8,7 @@ export class DefendAI{
   constructor(){this.timer=0;this.responders=new Set();}
   update(game,dt){
     this.timer-=dt;if(this.timer>0)return;this.timer=2;
-    const army=game.units.filter(u=>u.team===1&&u.hp>0&&(u.type==='shield'||u.type==='archer'));
+    const army=game.units.filter(u=>u.team===1&&u.hp>0&&['shield','ironShield','archer','crossbow','armoredCar','steamWalker'].includes(u.type));
     const alive=new Set(army.map(u=>u.id));
     for(const id of this.responders)if(!alive.has(id))this.responders.delete(id);
     const own=game.entities().filter(e=>e.team===1);
@@ -74,7 +74,7 @@ export class BalancedAI{
     const base=own.find(b=>b.primary)||own.find(b=>b.type==='base'&&!b.constructionPending)||own[0];
     if(!base)return;
     const units=game.units.filter(u=>u.team===1&&u.hp>0);
-    const army=units.filter(u=>u.type==='shield'||u.type==='archer');
+    const army=units.filter(u=>['shield','ironShield','archer','crossbow','armoredCar','steamWalker'].includes(u.type));
     const visible=game.entities().filter(e=>e.team===0&&game.canSee(1,e));
     for(const b of visible.filter(e=>e.building))this.knownBuildings.set(b.id,{id:b.id,x:b.x,y:b.y});
     for(const [id,p] of this.knownBuildings){
@@ -119,7 +119,7 @@ export class BalancedAI{
     }
     if(game.aiQueue.length>=2)return;
     const dogs=units.filter(u=>u.type==='wilddog').length+game.aiQueue.filter(q=>q.type==='wilddog').length;
-    const archers=army.filter(u=>u.type==='archer').length;
+    const archers=army.filter(u=>u.type==='archer'||u.type==='crossbow'||u.type==='armoredCar'||u.type==='steamWalker').length;
     const type=dogs<2&&!threat?'wilddog':archers<army.length*.4?'archer':'shield';
     // 防守告急时可花建设预留；平时先为下一座经济建筑积累资源。
     const reserve=job&&!threat?STATS[job.type]:{food:0,ore:0};

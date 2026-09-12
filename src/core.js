@@ -260,19 +260,28 @@ export class Game{
     if(['defend','balanced'].includes(this.level)&&!this.buildings.some(b=>b.team===0&&b.hp>0))this.result='defeat';
     this.revision++;this.updateVision();return null;
   }
-  // 进攻固定 120 人口、防守固定 100 人口；其他模式按已完工且存活的基地叠加。
+  // 进攻固定 200 人口、防守固定 100 人口；其他模式按已完工且存活的基地叠加。
   popCap(team=0){
-    if(this.level==='attack')return 120;
+    if(this.level==='attack')return 200;
     if(this.level==='defend')return 100;
     return this.buildings.reduce((n,b)=>n+(b.team===team&&b.hp>0&&!b.constructionPending?STATS[b.type].pop||0:0),0);
   }
   train(type,baseId=null){
-    if(!['shield','archer','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
+    if(!['shield','ironShield','archer','crossbow','armoredCar','steamWalker','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
     const base=this.buildings.find(b=>b.type==='base'&&b.team===0&&b.hp>0&&!b.constructionPending&&(baseId===null||b.id===baseId));
     if(!base)return '请选择已完工的基地';
     const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=this.popCap())return '人口已达上限';
     if(this.queue.filter(q=>q.baseId===base.id).length>=TRAIN_QUEUE_LIMIT)return '所选基地训练队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足，基地正在持续生产';
     this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:s.trainTime||3,baseId:base.id});this.revision++;return null;
+  }
+  cancelTraining(baseId,queueIndex){
+    if(this.result)return '战局已结束';
+    const base=this.buildings.find(b=>b.id===baseId&&b.type==='base'&&b.team===0&&b.hp>0&&!b.constructionPending);
+    if(!base)return '请选择已完工的基地';
+    const entries=this.queue.filter(q=>q.baseId===base.id),q=entries[queueIndex];
+    if(!q)return '训练项目不存在';
+    this.queue.splice(this.queue.indexOf(q),1);
+    this.food+=STATS[q.type].food;this.ore+=STATS[q.type].ore;this.revision++;return null;
   }
   setRallyPoint(baseId,point,team=0){
     if(this.result)return '战局已结束';
@@ -283,7 +292,7 @@ export class Game{
   }
   // AI 训练：与玩家相同的费用、人口与队列规则，使用 AI 自己的资源
   aiTrain(type){
-    if(!['shield','archer','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
+    if(!['shield','ironShield','archer','crossbow','armoredCar','steamWalker','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
     const bases=this.buildings.filter(b=>b.type==='base'&&b.team===1&&b.hp>0&&!b.constructionPending);
     const base=bases.sort((a,b)=>this.aiQueue.filter(q=>q.baseId===a.id).length-this.aiQueue.filter(q=>q.baseId===b.id).length||a.id-b.id)[0];
     if(!base)return 'AI 无可用基地';
@@ -390,8 +399,8 @@ export class Game{
           u.facing=Math.atan2(target.y-u.y,target.x-u.x);
           if(u.cooldown<=0){u.cooldown=s.cooldown;u.revealUntil=this.time+2;
             const dmg=this.attackDamage(u,target);
-            if(u.type==='archer'){this.projectiles.push({x:u.x,y:u.y,fromX:u.x,fromY:u.y,targetId:target.id,team:u.team,damage:dmg,life:2});this.audioEvents.push('archerFire');}
-            else{this.damage(target,dmg);this.effects.push({x:target.x,y:target.y,team:u.team,kind:'hit',life:.22,maxLife:.22});if(u.type==='shield')this.audioEvents.push('shieldAttack');}
+            if(s.ranged){this.projectiles.push({x:u.x,y:u.y,fromX:u.x,fromY:u.y,targetId:target.id,team:u.team,damage:dmg,kind:s.projectileKind||'arrow',splashDamage:s.splashDamage||0,splashRadius:s.splashRadius||0,life:2});if(s.audioEvent)this.audioEvents.push(s.audioEvent);}
+            else{this.damage(target,dmg);this.effects.push({x:target.x,y:target.y,team:u.team,kind:'hit',life:.22,maxLife:.22});}
           }
           continue;
         }
@@ -414,7 +423,7 @@ export class Game{
       }
     }
     this.separate(dt);
-    for(const p of this.projectiles){const target=entities.find(e=>e.id===p.targetId&&e.hp>0);if(!target){p.life=0;continue;}const d=distance(p,target),step=22*dt;p.life-=dt;if(d<=step){p.x=target.x;p.y=target.y;this.damage(target,p.damage);this.effects.push({x:p.x,y:p.y,team:p.team,kind:'hit',life:.3,maxLife:.3});p.life=0;}else{p.x+=(target.x-p.x)/d*step;p.y+=(target.y-p.y)/d*step;}}
+    for(const p of this.projectiles){const target=entities.find(e=>e.id===p.targetId&&e.hp>0);if(!target){p.life=0;continue;}const d=distance(p,target),step=22*dt;p.life-=dt;if(d<=step){p.x=target.x;p.y=target.y;this.damage(target,p.damage);if(p.splashDamage&&p.splashRadius){for(const e of entities)if(e.team!==p.team&&e.hp>0&&distance(p,e)<=p.splashRadius)this.damage(e,p.splashDamage);this.effects.push({x:p.x,y:p.y,team:p.team,kind:'explosion',radius:p.splashRadius,life:.45,maxLife:.45});}else this.effects.push({x:p.x,y:p.y,team:p.team,kind:'hit',life:.3,maxLife:.3});p.life=0;}else{p.x+=(target.x-p.x)/d*step;p.y+=(target.y-p.y)/d*step;}}
     this.projectiles=this.projectiles.filter(p=>p.life>0);this.effects.forEach(e=>e.life-=dt);this.effects=this.effects.filter(e=>e.life>0);
     this.units=this.units.filter(u=>u.hp>0);
     const primary=b=>this.buildings.find(x=>x.team===b&&x.primary);
@@ -490,7 +499,7 @@ export class Game{
     const atRest=u=>u.targetId==null&&u.path.length===0&&u.order==='idle';
     for(let i=0;i<this.units.length;i++)for(let j=i+1;j<this.units.length;j++){
       const a=this.units[i],b=this.units[j];if(this.isFlying(a)||this.isFlying(b))continue;
-      const d=distance(a,b),gap=atRest(a)&&atRest(b)?1.4:.85;
+      const d=distance(a,b),collisionGap=(STATS[a.type].collisionRadius||.425)+(STATS[b.type].collisionRadius||.425),gap=atRest(a)&&atRest(b)?Math.max(1.6,collisionGap):collisionGap;
       if(d>=gap)continue;
       const dx=d>.001?(a.x-b.x)/d:1,dy=d>.001?(a.y-b.y)/d:0,k=Math.min((gap-d)*.5,dt*1.5);
       for(const [u,sign]of [[a,1],[b,-1]]){if(STATS[u.type].air)continue;const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}

@@ -4,6 +4,8 @@ import {SnapshotHost,SnapshotReceiver} from './sync.js';
 import {STATS,W,H,isSlowTerrain} from './data.js';
 import {AudioManager} from './audio.js';
 const $=id=>document.getElementById(id);
+const TRAINABLE_TYPES=['shield','ironShield','archer','crossbow','armoredCar','steamWalker','wilddog','pigeon'];
+const UNIT_ICONS={shield:'🛡',ironShield:'🛡️',archer:'🏹',crossbow:'🎯',armoredCar:'',steamWalker:'',wilddog:'🐕',pigeon:'🕊'};
 const params=new URLSearchParams(location.search),observer=params.has('observe');
 const session=params.get('session')||crypto.randomUUID();
 if(!params.has('session')){params.set('session',session);history.replaceState(null,'',`?${params}`);}
@@ -29,7 +31,7 @@ function setSettings(open){settingsPanel.hidden=!open;$('settings').setAttribute
 $('settings').onclick=()=>setSettings(true);$('settings-close').onclick=()=>setSettings(false);
 for(const id of ['master-volume','effects-volume'])$(id).addEventListener('input',()=>{audio.save({[id==='master-volume'?'master':'effects']:Number($(id).value)});syncAudioSettings();});
 $('sound-muted').addEventListener('change',()=>{audio.save({muted:$('sound-muted').checked});syncAudioSettings();});
-$('test-shield-sound').onclick=()=>{audio.unlock();audio.play('shieldAttack');};$('test-archer-sound').onclick=()=>{audio.unlock();audio.play('archerFire');};syncAudioSettings();
+$('test-cannon-sound').onclick=()=>{audio.unlock();audio.play('cannonFire');};syncAudioSettings();
 for(const type of ['base','mine','tower','factory'])$(`build-${type}`).textContent=`${STATS[type].name} [${{base:'C',mine:'R',tower:'Q',factory:'F'}[type]}] · ${STATS[type].ore} 矿 / ${STATS[type].food} 食物`;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),2600);}
 function setAttack(on){if(on)closeBuild();attackMode=on;$('game').style.cursor=on?'crosshair':'default';$('mode-hint').textContent=observer?'观察窗口 · 滚轮缩放 · 中键拖动':on?'攻击移动：左键指定位置 · Esc 取消':'左键选择 · 右键移动';}
@@ -75,10 +77,31 @@ for(const card of document.querySelectorAll('.level-card'))card.onclick=()=>{
   if(observer)return;level=card.dataset.level;$('level-select').hidden=true;restart();toast(LEVELS[level].toast);
 };
 function stop(){if(observer)return;closeBuild();game.command([...selected],'stop');setAttack(false);toast(selected.size?'已停火；飞行单位继续盘旋':'请先选择部队');}
-for(const type of ['shield','archer','wilddog','pigeon'])$('base-train-'+type).onclick=()=>{
+for(const type of TRAINABLE_TYPES)$('base-train-'+type).onclick=()=>{
   if(observer)return;
   const error=game.train(type,selectedBuilding);toast(error||`${STATS[type].name}已加入所选基地训练队列`);updateHud();
 };
+function renderTrainingQueue(queue){
+  const root=$('base-queue'),signature=queue.map(q=>q.type).join(',');
+  if(root.dataset.queueSignature===signature){const time=root.querySelector('.queue-time');if(time)time.textContent=`${Math.max(0,Math.ceil(queue[0].remaining))}s`;return;}
+  root.dataset.queueSignature=signature;root.replaceChildren();
+  if(!queue.length){root.textContent='队列为空';return;}
+  queue.forEach((q,index)=>{
+    const button=document.createElement('button');button.type='button';button.className='queue-unit';button.dataset.queueIndex=index;
+    button.setAttribute('aria-label',`取消训练${STATS[q.type].name}，全额退款`);button.title=`取消训练${STATS[q.type].name}并全额退款`;
+    const icon=document.createElement('span');icon.className=`unit-icon${STATS[q.type].machine?` machine-icon ${q.type}-icon`:''}`;icon.setAttribute('aria-hidden','true');icon.textContent=UNIT_ICONS[q.type];
+    const position=document.createElement('span');position.className='queue-position';position.textContent=index+1;
+    button.append(icon,position);
+    if(index===0){const time=document.createElement('span');time.className='queue-time';time.textContent=`${Math.max(0,Math.ceil(q.remaining))}s`;button.append(time);}
+    root.append(button);
+  });
+}
+$('base-queue').addEventListener('click',event=>{
+  const button=event.target.closest('.queue-unit');if(!button||observer)return;
+  const index=Number(button.dataset.queueIndex),entry=game.queue.filter(q=>q.baseId===selectedBuilding)[index];
+  const error=game.cancelTraining(selectedBuilding,index);
+  toast(error||`已取消${STATS[entry.type].name}训练并全额退款`);if(!error)sendSnapshot();updateHud();
+});
 function local(event){const rect=$('game').getBoundingClientRect();return {x:event.clientX-rect.left,y:event.clientY-rect.top};}
 function visibleToView(e){const team=view===2?1:0;return view===1||e.team===team||state.visible[team][Math.floor(e.y)*state.map.width+Math.floor(e.x)];}
 function issue(p,attack,append=false,allowMountains=false,groundOnly=false){
@@ -195,8 +218,8 @@ function updateHud(){
   $('base-training').hidden=observer||!building||building.type!=='base'||!!building.constructionPending;
   const baseQueue=building?.type==='base'?state.queue.filter(q=>q.baseId===building.id):[];
   $('base-queue-count').textContent=`${baseQueue.length} / ${TRAIN_QUEUE_LIMIT}`;
-  $('base-queue').textContent=baseQueue.length?baseQueue.map((q,i)=>`${i+1}. ${STATS[q.type].name}${i===0?` · ${Math.max(0,Math.ceil(q.remaining))} 秒`:''}`).join('\n'):'队列为空';
-  for(const type of ['shield','archer','wilddog','pigeon'])$('base-train-'+type).disabled=!!state.result||!building||!!building.constructionPending||baseQueue.length>=TRAIN_QUEUE_LIMIT||state.units.filter(u=>u.team===0&&u.hp>0).length+state.queue.length>=state.popCap||state.food<STATS[type].food||state.ore<STATS[type].ore;
+  renderTrainingQueue(baseQueue);
+  for(const type of TRAINABLE_TYPES)$('base-train-'+type).disabled=!!state.result||!building||!!building.constructionPending||baseQueue.length>=TRAIN_QUEUE_LIMIT||state.units.filter(u=>u.team===0&&u.hp>0).length+state.queue.length>=state.popCap||state.food<STATS[type].food||state.ore<STATS[type].ore;
 
   $('building-title').textContent=building?STATS[building.type].name:'建造菜单 · B';
   $('building-info').textContent=building?`生命 ${Math.ceil(building.hp)} / ${building.maxHp} · ${building.awaitingEviction?'等待区域内部队离开，随后自动施工':building.constructionPending?(building.activeBuilders?`施工 ${building.activeBuilders} 人 · 预计剩余 ${Math.ceil(building.constructionRemaining/building.activeBuilders)} 秒`:'等待施工人员到场 · 可选中部队右键补派'):building.type==='base'?`不产资源；6 格内最多治疗 5 人，每人每秒 +2 生命。提供 40 人口。按 Y 设置集结点${building.rallyPoint?` · 当前 ${building.rallyPoint.x.toFixed(1)}, ${building.rallyPoint.y.toFixed(1)}`:''}。`:building.type==='mine'?'每秒 +5 矿产':building.type==='factory'?`每秒 +${(state.map.foodPoints||[]).some(n=>Math.abs(building.x-n.x-.5)<1.5&&Math.abs(building.y-n.y-.5)<1.5)?'6 食物（食物点 ×2）':'3 食物'}`:'驻守弓箭兵 · 视野 15.6 / 射程 10.4'}`:buildType?`左键放置${STATS[buildType].name}，绿色可建 / 红色不可建。`:'C 基地 / R 采矿场 / Q 哨塔 / F 食物厂，选择后左键选址。';

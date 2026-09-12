@@ -6,7 +6,11 @@ export const MOVEMENT_MULTIPLIERS = [1, 0.2, 0.6];
 export const isSlowTerrain = terrain=>terrain===1||terrain===2;
 export const STATS = {
   shield:{name:'盾兵',hp:100,armor:4,damage:14,cooldown:.85,range:1.5,speed:1.6,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false},
-  archer:{name:'弓箭兵',hp:75,armor:1,damage:15,cooldown:1.2,range:7,speed:1.75,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false,antiAir:true},
+  ironShield:{name:'铁盾兵',hp:100,armor:7,damage:15,cooldown:.85,range:1.5,speed:1.6,vision:10,food:50,ore:30,trainTime:4,movable:true,air:false},
+  archer:{name:'弓箭兵',hp:75,armor:1,damage:15,cooldown:1.2,range:7,speed:1.75,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false,antiAir:true,ranged:true},
+  crossbow:{name:'强弩兵',hp:75,armor:1,damage:22,cooldown:1.2,range:7,speed:1.75,vision:10,food:50,ore:30,trainTime:4,movable:true,air:false,antiAir:true,ranged:true},
+  armoredCar:{name:'铁甲车',hp:250,armor:10,damage:22,cooldown:.6,range:7,speed:2.45,vision:10,food:150,ore:150,trainTime:4,movable:true,air:false,ranged:true,machine:true,visualSize:1.2,collisionRadius:.55},
+  steamWalker:{name:'蒸汽步行机',hp:400,armor:20,damage:70,cooldown:1,range:10,speed:1.4,vision:13,food:300,ore:500,trainTime:4,movable:true,air:false,ranged:true,machine:true,visualSize:1.35,collisionRadius:.65,projectileKind:'cannonball',splashDamage:20,splashRadius:2,audioEvent:'cannonFire'},
   wilddog:{name:'野狗',hp:55,armor:0,damage:7,cooldown:.5,range:1.5,speed:2.75,vision:10,food:40,ore:0,trainTime:2,movable:true,air:false},
   pigeon:{name:'信鸽',hp:40,armor:0,damage:4,cooldown:.8,range:1.5,speed:5,vision:15,visionGround:5,food:60,ore:0,trainTime:2,movable:true,air:true,airOnly:true,minTurnRadius:2,orbitRadius:4},
   base:{name:'前线基地',hp:900,armor:4,vision:14,food:300,ore:400,buildTime:240,maxBuilders:6,healRange:6,healRate:2,healTargets:5,pop:40},
