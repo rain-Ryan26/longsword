@@ -110,8 +110,8 @@ export class Game{
     }
     this.revision++;this.updateVision();
   }
-  // 对空射程与伤害：弓箭兵、哨塔对空射程 2、伤害减半；空中近战用自身射程和伤害
-  attackRange(u,e){const s=STATS[u.type];return this.isFlying(e)&&s.antiAir?2:s.range+(e.building?(STATS[e.type].halfSize||2)-.5:0);}
+  // 对空射程与伤害：弓箭兵、强弩兵对空射程 2，哨塔 6；伤害减半；空中近战用自身射程和伤害
+  attackRange(u,e){const s=STATS[u.type];return this.isFlying(e)&&s.antiAir?(s.antiAirRange??2):s.range+(e.building?(STATS[e.type].halfSize||2)-.5:0);}
   attackDamage(u,e){const s=STATS[u.type];return this.isFlying(e)&&s.antiAir?s.damage/2:s.damage;}
   pathFor(u,end){
     if(this.isFlying(u))return [];

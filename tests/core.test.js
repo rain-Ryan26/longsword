@@ -323,8 +323,8 @@ test('施工点位沿建筑四边生成，建筑中心 x≠y 时不再偏移',()
 test('哨塔固定驻兵使用增强射程、视野和弹道，拆除后停止攻击',()=>{
   const g=new Game();g.units=[];g.map.terrain.fill(0);
   const tower=g.addBuilding('tower',0,35,32),enemy=g.addUnit('shield',1,43,32);enemy.x=43;enemy.y=32;enemy.holdFire=true;
-  assert.equal(tower.hp,STATS.tower.hp);assert.equal(g.detectionRange(tower),STATS.archer.vision*1.3);
-  assert.equal(STATS.tower.range,STATS.archer.range*1.3);g.updateVision();
+  assert.equal(tower.hp,STATS.tower.hp);assert.equal(g.detectionRange(tower),STATS.tower.vision);
+  assert.equal(STATS.tower.range,STATS.archer.range+1);g.updateVision();
   const hp=enemy.hp;g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(enemy.hp,hp);
   advance(g,.5);assert.equal(enemy.hp,hp-Math.max(1,STATS.tower.damage-STATS.shield.armor));assert.equal(tower.x,35);assert.equal(g.units.length,1);
   enemy.x=46;g.projectiles=[];tower.cooldown=0;g.updateVision();g.step(.05);assert.equal(g.projectiles.length,0);
@@ -364,11 +364,11 @@ test('弓箭兵对空射程 2、伤害减半，对地不变',()=>{
   const ground=g.addUnit('shield',1,31.5,30),hp=ground.hp;ground.holdFire=true;a.cooldown=0;a.targetId=null;
   advance(g,.4);assert.equal(ground.hp,hp-Math.max(1,STATS.archer.damage-STATS.shield.armor));
 });
-test('哨塔可对空：射程 2、伤害减半',()=>{
+test('哨塔可对空：防空射程 6、伤害减半',()=>{
   const g=new Game();g.units=[];g.map.terrain.fill(0);
-  const tower=g.addBuilding('tower',0,35,32),pigeon=g.addUnit('pigeon',1,37.5,32);pigeon.holdFire=true;
-  g.updateVision();g.step(.05);assert.equal(g.projectiles.length,0);
-  pigeon.x=36.5;g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(g.projectiles[0].damage,7.5);
+  const tower=g.addBuilding('tower',0,35,32),pigeon=g.addUnit('pigeon',1,44,32);pigeon.holdFire=true;
+  g.updateVision();g.step(.05);assert.equal(g.projectiles.length,0); // 距离 9 超出对空射程 6
+  pigeon.x=40;g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(g.projectiles[0].damage,7.5);
   advance(g,.4);assert.equal(pigeon.hp,STATS.pigeon.hp-7.5);
 });
 
