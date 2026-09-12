@@ -1,8 +1,6 @@
 import {STATS} from './data.js';
-import {buildingCells} from './pathfinding.js';
+import {buildingCells,coversCell} from './pathfinding.js';
 const TEAM=['#85d7e3','#e59678'];
-// 矿点为区块：判断建筑是否覆盖该 1×1 格子
-const coversCell=(b,n)=>{const c=buildingCells(b);return n.x>=c.x0&&n.x<=c.x1&&n.y>=c.y0&&n.y<=c.y1;};
 export class Renderer{
   constructor(canvas,minimap){this.canvas=canvas;this.ctx=canvas.getContext('2d');this.minimap=minimap;this.mc=minimap.getContext('2d');this.camera={x:25,y:32,zoom:13};this.width=1;this.height=1;this.terrainCanvas=null;this.lastMap=null;this.sizeDirty=true;
     this.resizeObserver=new ResizeObserver(()=>{this.sizeDirty=true;});this.resizeObserver.observe(canvas);

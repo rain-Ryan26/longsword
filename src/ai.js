@@ -1,3 +1,4 @@
+import {coversCell} from './pathfinding.js';
 import {STATS} from './data.js';
 // 进攻关卡用联防 AI，防守关卡用两波总攻 AI。
 // AI 只通过 game 提供的公开接口下达指令，不读取玩家视野。
@@ -156,10 +157,6 @@ export class BalancedAI{
   planBuilding(game,own,units,base){
     const count=type=>own.filter(b=>b.type===type).length;
     const cap=own.reduce((n,b)=>n+(!b.constructionPending?(STATS[b.type].pop||0):0),0);
-    const covers=(b,n)=>{
-      const r=STATS[b.type].halfSize||2;
-      return n.x>=Math.round(b.x-r)&&n.x<=Math.round(b.x+r)-1&&n.y>=Math.round(b.y-r)&&n.y<=Math.round(b.y+r)-1;
-    };
     const nearby=type=>{
       for(const r of [7,11,15])for(const [dx,dy] of [[-1,0],[0,1],[-1,1],[1,0],[0,-1],[1,1]]){
         const p=game.placement(type,{x:base.x+dx*r,y:base.y+dy*r},1);
@@ -170,7 +167,7 @@ export class BalancedAI{
     const resource=(type,nodes)=>{
       for(const n of [...nodes].sort((a,b)=>distance(a,base)-distance(b,base))){
         // 已被己方对应建筑覆盖的食物点不重复建设。
-        if(own.some(b=>b.type===type&&covers(b,n)))continue;
+        if(own.some(b=>b.type===type&&coversCell(b,n)))continue;
         const p=game.placement(type,{x:n.x+.5,y:n.y+.5},1);
         if(!p.error)return {...p,type};
       }
@@ -212,8 +209,8 @@ export class BalancedAI{
     if(count('mine')<2){const mine=resource('mine',groups.map(g=>g.mine));if(mine)return mine;}
     if(units.length+game.aiQueue.length>=cap-8)return nearby('base');
     for(const group of groups){
-      const hasMine=own.some(b=>b.type==='mine'&&covers(b,group.mine));
-      const hasFactory=own.some(b=>b.type==='factory'&&covers(b,group.food));
+      const hasMine=own.some(b=>b.type==='mine'&&coversCell(b,group.mine));
+      const hasFactory=own.some(b=>b.type==='factory'&&coversCell(b,group.food));
       if(!hasMine&&!hasFactory&&preferred==='factory'){
         const factory=game.placement('factory',{x:group.food.x+.5,y:group.food.y+.5},1);
         if(!factory.error)return {...factory,type:'factory'};
