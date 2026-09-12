@@ -4,9 +4,9 @@ export const W = 96, H = 64;
 export const DETECTION_MULTIPLIERS = [1, 1.2, 0.3];
 export const MOVEMENT_MULTIPLIERS = [1, 0.2, 0.6];
 export const STATS = {
-  shield:{name:'盾兵',hp:150,armor:4,damage:18,cooldown:.85,range:1.5,speed:1.6,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false},
+  shield:{name:'盾兵',hp:100,armor:4,damage:14,cooldown:.85,range:1.5,speed:1.6,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false},
   archer:{name:'弓箭兵',hp:75,armor:1,damage:15,cooldown:1.2,range:7,speed:1.75,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false,antiAir:true},
-  wilddog:{name:'野狗',hp:55,armor:0,damage:6,cooldown:.5,range:1.5,speed:2.75,vision:10,food:40,ore:0,trainTime:2,movable:true,air:false},
+  wilddog:{name:'野狗',hp:55,armor:0,damage:7,cooldown:.5,range:1.5,speed:2.75,vision:10,food:40,ore:0,trainTime:2,movable:true,air:false},
   pigeon:{name:'信鸽',hp:40,armor:0,damage:4,cooldown:.8,range:1.5,speed:5,vision:15,visionGround:5,food:60,ore:0,trainTime:2,movable:true,air:true,airOnly:true,minTurnRadius:2,orbitRadius:4},
   base:{name:'前线基地',hp:900,armor:4,vision:14,food:300,ore:400,buildTime:240,maxBuilders:6,healRange:6,healRate:2,healTargets:5,pop:40},
   mine:{name:'采矿场',hp:550,armor:3,vision:11,food:100,ore:200,buildTime:180,halfSize:1.5},
