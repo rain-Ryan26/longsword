@@ -1,7 +1,7 @@
 import {Game,TRAIN_QUEUE_LIMIT} from './core.js';
 import {Renderer} from './renderer.js';
 import {SnapshotHost,SnapshotReceiver} from './sync.js';
-import {STATS,TECHNOLOGIES,W,H,isSlowTerrain} from './data.js';
+import {STATS,TECHNOLOGIES,W,H,isSlowTerrain,usedPop} from './data.js';
 import {AudioManager} from './audio.js';
 const $=id=>document.getElementById(id);
 const BASE_TRAINABLE_TYPES=['shield','archer','wilddog','pigeon'];
@@ -213,7 +213,7 @@ window.addEventListener('blur',()=>{drag=null;lastUnitClick=null;lastRightClick=
 function updateHud(){
   if(!state)return;if(game)state=game.snapshot();
   for(const id of selected)if(!state.units.some(u=>u.id===id))selected.delete(id);
-  $('food').textContent=Math.floor(state.food);$('ore').textContent=Math.floor(state.ore);$('population').textContent=`${state.units.filter(u=>u.team===0).length} / ${state.popCap}`;
+  $('food').textContent=Math.floor(state.food);$('ore').textContent=Math.floor(state.ore);$('population').textContent=`${usedPop(state.units,0)} / ${state.popCap}`;
   const botView=view===2;$('bot-resources').hidden=!botView;if(botView){$('bot-food').textContent=Math.floor(state.aiFood);$('bot-ore').textContent=Math.floor(state.aiOre);}
   const seconds=Math.floor(state.time);$('clock').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
   $('pause').textContent=paused?'继续':'暂停';$('pause').classList.toggle('active',paused);$('speed').textContent=speed+'×';
@@ -239,7 +239,7 @@ function updateHud(){
   renderTrainingQueue(baseQueue);
   for(const type of TRAINABLE_TYPES){
     const unlocked=type==='armoredCar'?state.technologies.castIron.status==='complete':type==='steamWalker'?['castIron','artillery','steamCore'].every(id=>state.technologies[id].status==='complete'):true;
-    $('base-train-'+type).disabled=!!state.result||!readyProducer||baseQueue.length>=TRAIN_QUEUE_LIMIT||!unlocked||state.units.filter(u=>u.team===0&&u.hp>0).length+state.queue.length>=state.popCap||state.food<STATS[type].food||state.ore<STATS[type].ore;
+    $('base-train-'+type).disabled=!!state.result||!readyProducer||baseQueue.length>=TRAIN_QUEUE_LIMIT||!unlocked||usedPop(state.units,0,state.queue)>=state.popCap||state.food<STATS[type].food||state.ore<STATS[type].ore;
     if(STATS[type].machine)$('base-train-'+type).title=unlocked?'':type==='armoredCar'?'需要铸铁装甲':'需要三项科技全部完成';
   }
   const shieldType=productionType('shield',state.technologies),archerType=productionType('archer',state.technologies);

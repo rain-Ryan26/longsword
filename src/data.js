@@ -16,8 +16,8 @@ export const STATS = {
   ironShield:{name:'铁盾兵',hp:80,armor:7,damage:15,cooldown:.85,range:1.5,speed:1.6,vision:9,food:50,ore:20,trainTime:5,movable:true,air:false},
   archer:{name:'弓箭兵',hp:50,armor:1,damage:15,cooldown:1.2,range:7,speed:1.75,vision:9,food:60,ore:10,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
   crossbow:{name:'强弩兵',hp:50,armor:1,damage:22,cooldown:1.2,range:7,speed:1.75,vision:9,food:50,ore:30,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
-  armoredCar:{name:'装甲车',hp:200,armor:10,damage:22,cooldown:.6,range:7,speed:2.45,vision:10,food:150,ore:150,trainTime:10,movable:true,air:false,ranged:true,machine:true,visualSize:1.2,collisionRadius:.55},
-  steamWalker:{name:'蒸汽步行机',hp:300,armor:20,damage:70,cooldown:1,range:10,speed:1.4,vision:13,food:300,ore:500,trainTime:30,movable:true,air:false,ranged:true,machine:true,visualSize:1.35,collisionRadius:.65,projectileKind:'cannonball',splashDamage:20,splashRadius:2,audioEvent:'cannonFire'},
+  armoredCar:{name:'装甲车',hp:200,armor:10,damage:22,cooldown:.6,range:7,speed:2.45,vision:10,food:150,ore:150,trainTime:10,pop:3,movable:true,air:false,ranged:true,machine:true,visualSize:1.2,collisionRadius:.55},
+  steamWalker:{name:'蒸汽步行机',hp:300,armor:20,damage:70,cooldown:1,range:10,speed:1.4,vision:13,food:300,ore:500,trainTime:30,pop:5,movable:true,air:false,ranged:true,machine:true,visualSize:1.35,collisionRadius:.65,projectileKind:'cannonball',splashDamage:20,splashRadius:2,audioEvent:'cannonFire'},
   wilddog:{name:'野狗',hp:55,armor:0,damage:7,cooldown:.5,range:1.5,speed:2.75,vision:10,food:40,ore:0,trainTime:2,movable:true,air:false},
   pigeon:{name:'信鸽',hp:40,armor:0,damage:4,cooldown:.8,range:1.5,speed:5,vision:15,visionGround:5,food:60,ore:0,trainTime:2,movable:true,air:true,airOnly:true,minTurnRadius:2,orbitRadius:4},
   base:{name:'前线基地',hp:900,armor:5,vision:14,food:300,ore:400,buildTime:240,maxBuilders:6,healRange:6,healRate:2,healTargets:5,pop:40},
@@ -27,6 +27,8 @@ export const STATS = {
   machineFactory:{name:'机械工厂',hp:1200,armor:5,vision:11,food:300,ore:400,buildTime:480,maxBuilders:8},
   camp:{name:'资源营地',hp:550,armor:5,vision:11}
 };
+export const popOf=t=>STATS[t].pop||1;
+export const usedPop=(units,team,queue=[])=>units.reduce((n,u)=>n+(u.team===team&&u.hp>0?popOf(u.type):0),0)+queue.reduce((n,q)=>n+popOf(q.type),0);
 export function createMap(){
   const terrain = new Array(W*H).fill(0);
   for(let y=0;y<H;y++) for(let x=0;x<W;x++){

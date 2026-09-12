@@ -117,6 +117,25 @@ export class Renderer{
     }
     for(const p of state.projectiles){if(!this.inView(p,2))continue;if(!all&&!visible[Math.floor(p.y)*W+Math.floor(p.x)])continue;c.save();c.translate(p.x,p.y);if(p.kind==='cannonball'){c.fillStyle='#262b29';c.strokeStyle='#e3cfa4';c.lineWidth=.07;c.beginPath();c.arc(0,0,.27,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#f4dfaa99';c.beginPath();c.arc(-.08,-.08,.07,0,Math.PI*2);c.fill();}else{const a=Math.atan2(p.y-p.fromY,p.x-p.fromX);c.rotate(a);c.strokeStyle='#f4dfaa';c.lineWidth=.09;c.beginPath();c.moveTo(-.8,0);c.lineTo(.2,0);c.lineTo(-.1,-.15);c.moveTo(.2,0);c.lineTo(-.1,.15);c.stroke();}c.restore();}
     for(const e of state.effects){if(!this.inView(e,2))continue;if(!all&&!visible[Math.floor(e.y)*W+Math.floor(e.x)])continue;const alpha=e.life/e.maxLife;if(e.kind==='explosion'){c.fillStyle=`rgba(255,120,110,${.18*alpha})`;c.strokeStyle=`rgba(255,155,145,${.55*alpha})`;c.lineWidth=.1;c.beginPath();c.arc(e.x,e.y,e.radius,0,Math.PI*2);c.fill();c.stroke();}else{c.strokeStyle=`rgba(247,218,151,${alpha})`;c.lineWidth=.13;c.beginPath();c.arc(e.x,e.y,(1-alpha)*.8+.2,0,Math.PI*2);c.stroke();}}
+    // 残影：在已探索但非当前视野处绘制最后看到的敌方实体剪影（建筑永久、部队随时间淡化）。
+    if(!all&&state.ghosts?.[team]){
+      for(const g of state.ghosts[team].buildings||[]){
+        const i=Math.floor(g.y)*W+Math.floor(g.x);if(visible[i]||!explored[i])continue;
+        const r=STATS[g.type]?.halfSize||2;c.save();c.translate(g.x,g.y);
+        c.fillStyle='#5a2828';c.strokeStyle='#c05555';c.lineWidth=.1;c.fillRect(-r,-r,r*2,r*2);c.strokeRect(-r,-r,r*2,r*2);
+        c.fillStyle='#e8b0b0';c.textAlign='center';c.font=`${Math.max(.6,9/z)}px "Microsoft YaHei"`;c.fillText(STATS[g.type].name,0,0);
+        c.restore();
+      }
+      for(const g of state.ghosts[team].units||[]){
+        const i=Math.floor(g.y)*W+Math.floor(g.x);if(visible[i]||!explored[i])continue;
+        const age=state.time-g.seenAt;if(age>=60)continue;
+        const size=STATS[g.type]?.visualSize||1;c.save();c.translate(g.x,g.y);c.globalAlpha=age<30?1:.5;
+        c.fillStyle='#5a2d2d';c.strokeStyle='#c55a5a';c.lineWidth=.09;c.beginPath();
+        if(STATS[g.type]?.machine){c.moveTo(0,-.5*size);c.lineTo(.36*size,0);c.lineTo(0,.5*size);c.lineTo(-.36*size,0);c.closePath();}else c.arc(0,0,.4*size,0,Math.PI*2);
+        c.fill();c.stroke();c.fillStyle='#e8b0b0';c.textAlign='center';c.font='.5px "Microsoft YaHei"';c.fillText(STATS[g.type].name,0,1.05);
+        c.restore();
+      }
+    }
     if(!all){
       c.imageSmoothingEnabled=false;c.drawImage(this.fogCanvas,0,0,W,H);
     }
@@ -163,6 +182,8 @@ export class Renderer{
       for(const n of state.map.resources||[])if(!state.buildings.some(b=>b.type==='mine'&&b.hp>0&&!b.constructionPending&&coversCell(b,n))&&(all||state.explored[team][Math.floor(n.y)*W+Math.floor(n.x)])){c.fillStyle='#dfbd64';c.fillRect(n.x*s-2,n.y*sy-2,s+4,s+4);}
       for(const n of state.map.foodPoints||[])if(all||state.explored[team][n.y*W+n.x]){c.fillStyle='#a6dc74';c.fillRect(n.x*s-2,n.y*sy-2,s+4,sy+4);}
       for(const e of [...state.buildings,...state.units])if(e.hp>0&&(all||e.team===team||state.visible[team][Math.floor(e.y)*W+Math.floor(e.x)])){c.fillStyle=e.type==='mine'?'#f2ce45':TEAM[e.team];const r=e.building?(e.type==='tower'?2:3):1.5;c.fillRect(e.x*s-r,e.y*sy-r,r*2,r*2);}
+      if(!all&&state.ghosts?.[team])for(const g of state.ghosts[team].buildings||[]){const i=Math.floor(g.y)*W+Math.floor(g.x);if(state.explored[team][i]&&!state.visible[team][i]){c.fillStyle='#c05555';const r=g.type==='tower'?2:3;c.fillRect(g.x*s-r,g.y*sy-r,r*2,r*2);}}
+      if(!all&&state.ghosts?.[team])for(const g of state.ghosts[team].units||[]){const i=Math.floor(g.y)*W+Math.floor(g.x);if(state.explored[team][i]&&!state.visible[team][i]&&state.time-g.seenAt<60){c.fillStyle='#d06060';c.globalAlpha=state.time-g.seenAt<30?1:.5;c.fillRect(g.x*s-1.5,g.y*sy-1.5,s+3,sy+3);c.globalAlpha=1;}}
       this.miniUnitsKey=unitsKey;
     }
     const c=this.mc;c.drawImage(this.miniUnits,0,0);

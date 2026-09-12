@@ -128,13 +128,13 @@ test('弓箭延迟伤害、护甲扣减和射击暴露',()=>{
   assert.equal(b.hp,hp-Math.max(1,STATS.archer.damage-STATS.shield.armor));
 });
 test('停火不使正常视野内单位隐身，射击暴露过期',()=>{const g=new Game();g.units=[];g.buildings=[];g.map.terrain.fill(0);const a=g.addUnit('shield',0,20,20),b=g.addUnit('shield',1,40,20);a.holdFire=true;g.updateVision();assert.equal(g.canSee(1,a),false);a.revealUntil=2;g.updateVision();assert.equal(g.canSee(1,a),true);g.time=3;g.updateVision();assert.equal(g.canSee(1,a),false);b.x=24;g.updateVision();assert.equal(g.canSee(1,a),true);});
-test('训练扣费、出兵与人口上限',()=>{const g=new Game();assert.equal(g.train('shield'),null);assert.equal(g.food,950);assert.equal(g.ore,990);advance(g,5.1);assert.equal(g.units.filter(u=>u.team===0).length,15);assert.equal(g.queue.length,0);g.food=0;assert.match(g.train('archer'),/资源不足/);g.food=10000;g.ore=10000;while(g.units.filter(u=>u.team===0).length<40)g.addUnit('shield',0,18,36);assert.match(g.train('shield'),/人口/);});
+test('训练扣费、出兵与人口上限',()=>{const g=new Game();assert.equal(g.train('shield'),null);assert.equal(g.food,4950);assert.equal(g.ore,4990);advance(g,5.1);assert.equal(g.units.filter(u=>u.team===0).length,31);assert.equal(g.queue.length,0);g.food=0;assert.match(g.train('archer'),/资源不足/);g.food=10000;g.ore=10000;while(g.units.filter(u=>u.team===0).length<40)g.addUnit('shield',0,18,36);assert.match(g.train('shield'),/人口/);});
 test('点击队列对应的取消逻辑会移除指定单位并全额退款',()=>{
   const g=new Game(),base=g.buildings.find(b=>b.team===0&&b.type==='base');
   assert.equal(g.train('shield',base.id),null);assert.equal(g.train('archer',base.id),null);advance(g,1);
   assert.equal(g.cancelTraining(base.id,0),null);
   assert.deepEqual(g.queue.filter(q=>q.baseId===base.id).map(q=>q.type),['archer']);
-  assert.equal(g.food,940);assert.equal(g.ore,990);
+  assert.equal(g.food,4940);assert.equal(g.ore,4990);
   assert.match(g.cancelTraining(base.id,8),/不存在/);
 });
 test('基地集结点独立保存，新单位出兵后自动前往',()=>{
@@ -170,7 +170,7 @@ test('人口上限随基地数量叠加，施工中基地不提供人口',()=>{c
   assert.match(g.train('shield'),/人口/);
 });
 test('建筑摧毁解除占地，胜负停止模拟',()=>{const g=new Game(),b=g.buildings.find(b=>b.team===1);assert.equal(walkable(g.map,g.buildings,b.x,b.y),false);g.damage(b,9999);assert.equal(walkable(g.map,g.buildings,b.x,b.y),true);for(const e of g.buildings.filter(b=>b.team===1))e.hp=0;g.step(.05);assert.equal(g.result,'victory');const time=g.time;g.step(1);assert.equal(g.time,time);const h=new Game();h.buildings[0].hp=0;h.step(.05);assert.equal(h.result,'defeat');});
-test('完整进攻：部队配合训练增援可摧毁两处营地',()=>{const g=new Game();let stage=0;for(let n=0;n<12000&&!g.result;n++){if(n%200===0){const camp=g.buildings.filter(b=>b.team===1&&b.hp>0)[0];if(camp){g.command(g.units.filter(u=>u.team===0).map(u=>u.id),'attack',camp);stage++;}if(g.units.filter(u=>u.team===0).length<25)g.train(n%400===0?'shield':'archer');}g.step(.05);}assert.equal(g.result,'victory',`结果 ${g.result}, 剩余玩家 ${g.units.filter(u=>u.team===0).length}, 营地 ${g.buildings.filter(b=>b.team===1).map(b=>b.hp)}`);assert.ok(stage>1);});
+test('完整进攻：部队配合训练增援可摧毁两处营地',()=>{const g=new Game();let stage=0;for(let n=0;n<12000&&!g.result;n++){if(n%200===0){const camp=g.buildings.filter(b=>b.team===1&&b.hp>0)[0];if(camp){g.command(g.units.filter(u=>u.team===0).map(u=>u.id),'attack',camp);stage++;}if(g.units.filter(u=>u.team===0).length<40)g.train(n%400===0?'shield':'archer');}g.step(.05);}assert.equal(g.result,'victory',`结果 ${g.result}, 剩余玩家 ${g.units.filter(u=>u.team===0).length}, 营地 ${g.buildings.filter(b=>b.team===1).map(b=>b.hp)}`);assert.ok(stage>1);});
 
 
 test('侦测按视线消耗：观察者地形不改预算，平地半径、森林缩短、山地延长，双方一致',()=>{
@@ -509,10 +509,10 @@ test('进攻关卡：固定兵力、五塔联防、AI 不补员，摧毁敌方�
   const g=new Game('attack');
   assert.equal(g.level,'attack');
   assert.equal(g.food,5000);assert.equal(g.ore,5000);assert.equal(g.aiFood,2000);assert.equal(g.aiOre,2000);
-  assert.equal(g.units.filter(u=>u.team===0&&u.type==='shield').length,60);
-  assert.equal(g.units.filter(u=>u.team===0&&u.type==='archer').length,60);
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='shield').length,50);
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='archer').length,50);
   assert.equal(g.units.filter(u=>u.team===1&&u.type==='shield').length,40);
-  assert.equal(g.units.filter(u=>u.team===1&&u.type==='archer').length,50);
+  assert.equal(g.units.filter(u=>u.team===1&&u.type==='archer').length,40);
   assert.equal(g.buildings.filter(b=>b.team===1&&b.type==='tower').length,5);
   assert.equal(g.popCap(),200);assert.equal(g.popCap(1),200);
   // 双方保留主基地、采矿场、食物厂
@@ -522,7 +522,7 @@ test('进攻关卡：固定兵力、五塔联防、AI 不补员，摧毁敌方�
     assert.equal(g.buildings.filter(b=>b.team===team&&b.type==='factory').length,1);
   }
   advance(g,10);
-  assert.equal(g.aiQueue.length,0);assert.equal(g.units.filter(u=>u.team===1).length,90);
+  assert.equal(g.aiQueue.length,0);assert.equal(g.units.filter(u=>u.team===1).length,80);
   // 仅摧毁主基地不获胜，需摧毁敌方全部建筑
   const enemyBase=g.buildings.find(b=>b.team===1&&b.primary);
   g.damage(enemyBase,99999);g.step(.05);
@@ -536,7 +536,7 @@ test('进攻关卡：一处受袭从其他防区抽调至 24 人，威胁解除�
   const g=new Game('attack'),tower=g.buildings.find(b=>b.team===1&&b.type==='tower');
   g.damage(tower,10);g.ai.timer=0;g.ai.update(g,.1);
   const response=g.units.filter(u=>u.team===1&&u.role==='reinforce');
-  assert.equal(response.length,6);
+  assert.equal(response.length,8);
   assert.ok(response.every(u=>u.defenseSector!==tower.defenseSector));
   assert.ok(response.every(u=>u.order==='attack'));
   g.time=4;g.ai.timer=0;g.ai.update(g,.1);
@@ -613,7 +613,7 @@ test('进攻与防守关卡的玩家初始食物和矿产均为 5000',()=>{
     const g=new Game(level);assert.equal(g.food,5000);assert.equal(g.ore,5000);
   }
   const demo=new Game('demo'),balanced=new Game('balanced');
-  assert.equal(demo.food,1000);assert.equal(demo.ore,1000);assert.equal(balanced.food,1000);assert.equal(balanced.ore,1000);
+  assert.equal(demo.food,5000);assert.equal(demo.ore,5000);assert.equal(balanced.food,1000);assert.equal(balanced.ore,1000);
 });
 
 test('防守重开重置波次，切换关卡清除波次状态',()=>{

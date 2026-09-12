@@ -1,4 +1,4 @@
-import {STATS,TECHNOLOGIES,createMap,createMapAttack,createMapBalanced,createMapDefend,DETECTION_MULTIPLIERS,MOVEMENT_MULTIPLIERS} from './data.js';
+import {STATS,TECHNOLOGIES,createMap,createMapAttack,createMapBalanced,createMapDefend,DETECTION_MULTIPLIERS,MOVEMENT_MULTIPLIERS,usedPop} from './data.js';
 import {findPath,nearestFree,walkable,buildingCells,spawnPoint} from './pathfinding.js';
 import {DefendAI,AssaultAI,BalancedAI} from './ai.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -10,11 +10,12 @@ export class Game{
     this.level=level;this.defense=null;
     this.map=level==='balanced'?createMapBalanced():level==='attack'?createMapAttack():level==='defend'?createMapDefend():createMap();
     this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.audioEvents=[];this.time=0;this.nextId=1;
-    const playerStart=(level==='attack'||level==='defend')?5000:1000,aiStart=(level==='attack'||level==='defend')?2000:1000;
+    const playerStart=(level==='attack'||level==='defend'||level==='demo')?5000:1000,aiStart=(level==='attack'||level==='defend')?2000:1000;
     this.food=playerStart;this.ore=playerStart;this.queue=[];this.aiFood=aiStart;this.aiOre=aiStart;this.aiQueue=[];
     this.technologies=Object.fromEntries(Object.keys(TECHNOLOGIES).map(id=>[id,{status:level==='demo'?'complete':'locked',remaining:0}]));
     this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
     this.visible=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];this.explored=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];
+    this.ghosts=[{buildings:new Map(),units:new Map()},{buildings:new Map(),units:new Map()}];
     if(level==='balanced'){this.aiFood=500;this.aiOre=500;}
     this.setupLevel();
     this.ai=level==='balanced'?new BalancedAI():level==='attack'?new DefendAI():level==='defend'?new AssaultAI():null;
@@ -39,9 +40,9 @@ export class Game{
     if(this.level==='demo'){
       this.addBuilding('base',0,12,32).primary=true;
       this.addBuilding('machineFactory',0,6,32);
-      this.map.camps.forEach((p,i)=>{this.addBuilding('camp',1,p.x,p.y);for(let n=0;n<7;n++){const u=this.addUnit(n<4?'shield':'archer',1,p.x-6+(n%3)*2,p.y-4+Math.floor(n/3)*3);u.home={x:u.x,y:u.y};u.role='guard';u.camp=i;}});
-      for(let n=0;n<14;n++)this.addUnit(n<8?'shield':'archer',0,19+(n%4)*2,27+Math.floor(n/4)*2.2);
-      for(let n=0;n<5;n++){const u=this.addUnit(n<3?'shield':'archer',1,57+n*1.3,29);u.role='patrol';u.patrolIndex=0;}
+      this.map.camps.forEach((p,i)=>{this.addBuilding('camp',1,p.x,p.y);for(let n=0;n<30;n++){const u=this.addUnit(n<17?'shield':'archer',1,p.x-6+(n%3)*2,p.y-4+Math.floor(n/3)*3);u.home={x:u.x,y:u.y};u.role='guard';u.camp=i;}});
+      for(let n=0;n<30;n++)this.addUnit(n<17?'shield':'archer',0,19+(n%6)*2,27+Math.floor(n/6)*2.2);
+      for(let n=0;n<10;n++){const u=this.addUnit(n<6?'shield':'archer',1,57+n*1.3,29);u.role='patrol';u.patrolIndex=0;}
       return;
     }
     if(this.level==='defend'){
@@ -64,15 +65,15 @@ export class Game{
     this.addBuilding('mine',1,72.5,24.5);
     this.addBuilding('factory',1,79.5,22.5);
     if(this.level==='attack'){
-      // 我方 60 盾、60 弓，沿西侧展开。
-      for(const type of ['shield','archer'])for(let n=0;n<60;n++){
+      // 我方 50 盾、50 弓，沿西侧展开。
+      for(const type of ['shield','archer'])for(let n=0;n<50;n++){
         const front=type==='shield',x=(front?30:18)+Math.floor(n/12)*2,y=4+(n%12)*5;
         this.addUnit(type,0,x,y);
       }
-      // 五个防区各有一座哨塔、8 盾、10 弓。
+      // 五个防区各有一座哨塔、8 盾、8 弓。
       for(const [sector,y] of [8,20,32,44,56].entries()){
         const tower=this.addBuilding('tower',1,68,y);tower.defenseSector=sector;
-        for(const [type,count,x] of [['shield',8,63],['archer',10,72]])for(let n=0;n<count;n++){
+        for(const [type,count,x] of [['shield',8,63],['archer',8,72]])for(let n=0;n<count;n++){
           const u=this.addUnit(type,1,x+(n%2)*1.6,y-4.8+Math.floor(n/2)*2.2);
           u.home={x:u.x,y:u.y};u.role='guard';u.defenseSector=sector;
         }
@@ -149,6 +150,23 @@ export class Game{
     };
     for(const e of this.entities()){if(e.building&&e.constructionPending)continue;const r=this.detectionRange(e);if(this.isFlying(e))circle(e.team,e.x,e.y,r,true);else sight(e.team,e.x,e.y,r);if(e.revealUntil>this.time)circle(1-e.team,e.x,e.y,2);}
     for(let t=0;t<2;t++)for(let i=0;i<this.map.width*this.map.height;i++)if(this.visible[t][i])this.explored[t][i]=1;
+    this.updateGhosts();
+  }
+  // 残影：离开视野后保留最后一次看到的敌方实体快照；建筑永久保留，部队 60 秒淡化。
+  updateGhosts(){
+    for(let t=0;t<2;t++){
+      const vis=this.visible[t],enemy=1-t,{buildings:bmap,units:umap}=this.ghosts[t];
+      for(const [id,g] of bmap)if(vis[this.cellIndex(g.x,g.y)]&&!this.buildings.some(b=>b.id===id&&b.hp>0))bmap.delete(id);
+      for(const [idx,g] of umap){
+        if(this.time-g.seenAt>60){umap.delete(idx);continue;}
+        if(vis[idx]&&!this.units.some(u=>u.hp>0&&u.team===enemy&&this.cellIndex(u.x,u.y)===idx))umap.delete(idx);
+      }
+    }
+    for(const e of this.entities()){
+      const t=1-e.team;if(!this.visible[t][this.cellIndex(e.x,e.y)])continue;
+      if(e.building)this.ghosts[t].buildings.set(e.id,{type:e.type,x:e.x,y:e.y});
+      else this.ghosts[t].units.set(this.cellIndex(e.x,e.y),{type:e.type,x:e.x,y:e.y,seenAt:this.time});
+    }
   }
   command(ids,kind,point,targetId=null,append=false,allowMountains=false,team=0){
     if(this.result)return;this.revision++;
@@ -300,7 +318,7 @@ export class Game{
     if(type==='steamWalker'&&!['castIron','artillery','steamCore'].every(id=>this.technologyComplete(id)))return '需要先完成铸铁装甲、火炮和蒸汽核心';
     const producer=this.buildings.find(b=>b.type===producerType&&b.team===0&&b.hp>0&&!b.constructionPending&&(producerId===null||b.id===producerId));
     if(!producer)return machine?'请选择已完工的机械工厂':'请选择已完工的基地';
-    const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=this.popCap())return '人口已达上限';
+    const s=STATS[type];if(usedPop(this.units,0,this.queue)>=this.popCap())return '人口已达上限';
     if(this.queue.filter(q=>q.baseId===producer.id).length>=TRAIN_QUEUE_LIMIT)return '所选生产建筑队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足';
     this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:s.trainTime||3,baseId:producer.id});this.revision++;return null;
   }
@@ -329,7 +347,7 @@ export class Game{
     if(!base)return producerType==='base'?'AI 无可用基地':'AI 无可用机械工厂';
     const s=STATS[type];
     const cap=this.popCap(1);
-    if(this.units.filter(u=>u.team===1&&u.hp>0).length+this.aiQueue.length>=cap)return '人口已达上限';
+    if(usedPop(this.units,1,this.aiQueue)>=cap)return '人口已达上限';
     if(this.aiQueue.filter(q=>q.baseId===base.id).length>=TRAIN_QUEUE_LIMIT)return '训练队列已满';
     if(this.aiFood<s.food||this.aiOre<s.ore)return '资源不足';
     this.aiFood-=s.food;this.aiOre-=s.ore;this.aiQueue.push({type,remaining:s.trainTime||3,baseId:base.id});this.revision++;return null;
@@ -538,5 +556,5 @@ export class Game{
       for(const [u,sign]of [[a,1],[b,-1]]){if(STATS[u.type].air)continue;const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
     }
   }
-  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,level:this.level,defense:this.defense?{...this.defense,sizes:[...this.defense.sizes]}:null,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,aiFood:this.aiFood,aiOre:this.aiOre,popCap:this.popCap(),queue:this.queue,technologies:this.technologies,result:this.result,visible:this.visible,explored:this.explored};}
+  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,level:this.level,defense:this.defense?{...this.defense,sizes:[...this.defense.sizes]}:null,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,aiFood:this.aiFood,aiOre:this.aiOre,popCap:this.popCap(),queue:this.queue,technologies:this.technologies,result:this.result,visible:this.visible,explored:this.explored,ghosts:[0,1].map(t=>({buildings:[...this.ghosts[t].buildings.values()],units:[...this.ghosts[t].units.values()]}))};}
 }
