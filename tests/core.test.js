@@ -555,10 +555,10 @@ test('进攻关卡：固定兵力、五塔联防、AI 不补员，摧毁敌方�
   const g=new Game('attack');
   assert.equal(g.level,'attack');
   assert.equal(g.food,5000);assert.equal(g.ore,5000);assert.equal(g.aiFood,2000);assert.equal(g.aiOre,2000);
-  assert.equal(g.units.filter(u=>u.team===0&&u.type==='shield').length,50);
-  assert.equal(g.units.filter(u=>u.team===0&&u.type==='archer').length,50);
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='shield').length,60);
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='archer').length,60);
   assert.equal(g.units.filter(u=>u.team===1&&u.type==='shield').length,40);
-  assert.equal(g.units.filter(u=>u.team===1&&u.type==='archer').length,40);
+  assert.equal(g.units.filter(u=>u.team===1&&u.type==='archer').length,50);
   assert.equal(g.buildings.filter(b=>b.team===1&&b.type==='tower').length,5);
   assert.equal(g.popCap(),200);assert.equal(g.popCap(1),200);
   // 双方保留主基地、采矿场、食物厂
@@ -568,7 +568,7 @@ test('进攻关卡：固定兵力、五塔联防、AI 不补员，摧毁敌方�
     assert.equal(g.buildings.filter(b=>b.team===team&&b.type==='factory').length,1);
   }
   advance(g,10);
-  assert.equal(g.aiQueue.length,0);assert.equal(g.units.filter(u=>u.team===1).length,80);
+  assert.equal(g.aiQueue.length,0);assert.equal(g.units.filter(u=>u.team===1).length,90);
   // 仅摧毁主基地不获胜，需摧毁敌方全部建筑
   const enemyBase=g.buildings.find(b=>b.team===1&&b.primary);
   g.damage(enemyBase,99999);g.step(.05);
@@ -582,7 +582,7 @@ test('进攻关卡：一处受袭从其他防区抽调至 24 人，威胁解除�
   const g=new Game('attack'),tower=g.buildings.find(b=>b.team===1&&b.type==='tower');
   g.damage(tower,10);g.ai.timer=0;g.ai.update(g,.1);
   const response=g.units.filter(u=>u.team===1&&u.role==='reinforce');
-  assert.equal(response.length,8);
+  assert.equal(response.length,6);
   assert.ok(response.every(u=>u.defenseSector!==tower.defenseSector));
   assert.ok(response.every(u=>u.order==='attack'));
   g.time=4;g.ai.timer=0;g.ai.update(g,.1);

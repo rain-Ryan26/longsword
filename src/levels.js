@@ -1,10 +1,10 @@
 import {createMap,createMapAttack,createMapBalanced,createMapDefend} from './data.js';
 
-export const ATTACK_SETUP={playerPerType:50,defenderPerType:8,sectorY:[8,20,32,44,56]};
+export const ATTACK_SETUP={playerPerType:60,defenderShield:8,defenderArcher:10,sectorY:[8,20,32,44,56]};
 export const LEVELS={
   demo:{title:'夺下双营地',desc:'侦察东部资源点，摧毁两座敌方营地。',toast:'框选蓝色部队，按 A 后点击目的地。'},
   balanced:{title:'均衡对抗',desc:'扩张经济、集结部队，摧毁敌方全部建筑。',toast:'双方各 6 盾兵、6 弓箭兵；绿色食物点上的食物厂产量翻倍。'},
-  attack:{title:'突破五塔联防',desc:`旧版试玩：率领 ${ATTACK_SETUP.playerPerType} 盾兵、${ATTACK_SETUP.playerPerType} 弓箭兵，摧毁敌方全部建筑。`,toast:`敌军有 ${ATTACK_SETUP.defenderPerType*ATTACK_SETUP.sectorY.length} 盾、${ATTACK_SETUP.defenderPerType*ATTACK_SETUP.sectorY.length} 弓且不能补员；攻击一处防区会引来其他守军增援。`},
+  attack:{title:'突破五塔联防',desc:`率领 ${ATTACK_SETUP.playerPerType} 盾兵、${ATTACK_SETUP.playerPerType} 弓箭兵，摧毁敌方全部建筑。`,toast:`敌军有 ${ATTACK_SETUP.defenderShield*ATTACK_SETUP.sectorY.length} 盾、${ATTACK_SETUP.defenderArcher*ATTACK_SETUP.sectorY.length} 弓且不能补员；攻击一处防区会引来其他守军增援。`},
   defend:{title:'抵御两波进攻',desc:'准备 120 秒，敌军 40+20 或 60+30 人。我方与第一波等量，保留建筑并全灭两波敌军。',toast:'趁准备期布防；第一波全灭后休整 30 秒迎接第二波。'}
 };
 
@@ -57,16 +57,18 @@ export function setupLevel(game){
     game.addBuilding('mine',1,72.5,24.5);
     game.addBuilding('factory',1,79.5,22.5);
     if(game.level==='attack'){
-      const {playerPerType,defenderPerType,sectorY}=ATTACK_SETUP;
-      // 旧版试玩使用现行配置，文档中的新版兵力尚待实现。
+      const {playerPerType,defenderShield,defenderArcher,sectorY}=ATTACK_SETUP;
       for(const type of ['shield','archer'])for(let n=0;n<playerPerType;n++){
         const front=type==='shield',x=(front?30:18)+Math.floor(n/12)*2,y=4+(n%12)*5;
         game.addUnit(type,0,x,y);
       }
-      // 防区兵力与介绍读取同一份现行配置。
+      // 玩家默认机械：3 装甲车、2 蒸汽步行机，置于其后半场。
+      for(let n=0;n<3;n++)game.addUnit('armoredCar',0,40+n*3,62);
+      for(let n=0;n<2;n++)game.addUnit('steamWalker',0,40+n*4,66);
+      // 防区兵力与介绍读取同一份配置。
       for(const [sector,y] of sectorY.entries()){
         const tower=game.addBuilding('tower',1,68,y);tower.defenseSector=sector;
-        for(const [type,count,x] of [['shield',defenderPerType,63],['archer',defenderPerType,72]])for(let n=0;n<count;n++){
+        for(const [type,count,x] of [['shield',defenderShield,63],['archer',defenderArcher,72]])for(let n=0;n<count;n++){
           const u=game.addUnit(type,1,x+(n%2)*1.6,y-4.8+Math.floor(n/2)*2.2);
           u.home={x:u.x,y:u.y};u.role='guard';u.defenseSector=sector;
         }
