@@ -66,7 +66,11 @@ class Heap{
   push(v){let i=this.a.length;this.a.push(v);while(i){const p=(i-1)>>1;if(this.a[p].f<=v.f)break;this.a[i]=this.a[p];i=p;}this.a[i]=v;}
   pop(){const first=this.a[0],last=this.a.pop();if(this.a.length){let i=0;while(i*2+1<this.a.length){let j=i*2+1;if(j+1<this.a.length&&this.a[j+1].f<this.a[j].f)j++;if(this.a[j].f>=last.f)break;this.a[i]=this.a[j];i=j;}this.a[i]=last;}return first;}
 }
-export function findPath(map,buildings,start,end,avoidMountains=false,avoidForests=avoidMountains){
+// 拥挤代价：密度超过 1（排除寻路单位自身）后按 CROWD_K 计代价，CROWD_CAP 封顶，
+// 保证存在替代路线时自动分流、只有一条路时不会无谓绕远。
+// 分流靠"密度反馈 + 周期重寻路"随时间自然形成，无需随机扰动。
+const CROWD_K=.7,CROWD_CAP=4;
+export function findPath(map,buildings,start,end,avoidMountains=false,avoidForests=avoidMountains,density=null){
   const W=map.width??96,H=map.height??64;
   const canWalk=createWalkability(map,buildings);
   const dest=nearestFree(map,buildings,end.x,end.y,avoidMountains,avoidForests,canWalk);if(!dest)return [];
@@ -80,7 +84,13 @@ export function findPath(map,buildings,start,end,avoidMountains=false,avoidFores
       if(!dx&&!dy)continue;const nx=x+dx,ny=y+dy;
       if(!canWalk(nx,ny,avoidMountains,avoidForests))continue;
       if(dx&&dy&&(!canWalk(x+dx,y,avoidMountains,avoidForests)||!canWalk(x,y+dy,avoidMountains,avoidForests)))continue;
-      const ni=ny*W+nx,ng=g[i]+(dx&&dy?Math.SQRT2:1);if(ng>=g[ni])continue;
+      const ni=ny*W+nx;
+      let step=dx&&dy?Math.SQRT2:1;
+      if(density){
+        const crowd=density[ni]-1;
+        if(crowd>0)step+=Math.min(crowd*CROWD_K,CROWD_CAP);
+      }
+      const ng=g[i]+step;if(ng>=g[ni])continue;
       g[ni]=ng;parent[ni]=i;const ax=Math.abs(tx-nx),ay=Math.abs(ty-ny);heap.push({i:ni,f:ng+Math.max(ax,ay)+(Math.SQRT2-1)*Math.min(ax,ay)});
     }
   }
