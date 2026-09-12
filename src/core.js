@@ -20,6 +20,7 @@ export class Game{
     this.visible=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];this.explored=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];
     this.ghosts=[{buildings:new Map(),units:new Map()},{buildings:new Map(),units:new Map()}];
     if(level==='balanced'){this.aiFood=500;this.aiOre=500;}
+    this.density=new Float32Array(this.map.width*this.map.height);
     this.setupLevel();
     this.ai=level==='balanced'?new BalancedAI():level==='attack'?new DefendAI():level==='defend'?new AssaultAI():null;
     this.updateVision();
@@ -64,7 +65,13 @@ export class Game{
     const [avoidMountains,avoidForests]=this.terrainAvoidance(u);
     const buildings=u.leavingId!=null?this.buildings.filter(b=>b.id!==u.leavingId):this.buildings;
     if((avoidMountains||avoidForests)&&end===u.goal){const p=nearestFree(this.map,buildings,end.x,end.y,avoidMountains,avoidForests);if(p){u.goal=p;end=p;}}
-    return findPath(this.map,buildings,u,end,avoidMountains,avoidForests);
+    return findPath(this.map,buildings,u,end,avoidMountains,avoidForests,this.density);
+  }
+  // 拥挤密度网格：每 tick 重建，供寻路代价与移动减速使用
+  updateDensity(){
+    const size=this.map.width*this.map.height;
+    if(!this.density||this.density.length!==size)this.density=new Float32Array(size);else this.density.fill(0);
+    for(const u of this.units)if(u.hp>0&&!this.isFlying(u))this.density[this.cellIndex(u.x,u.y)]++;
   }
   updateVision(){this.vision.update(this);}
   // 残影：离开视野后保留最后一次看到的敌方实体快照；建筑永久保留，部队 60 秒淡化。
@@ -271,6 +278,7 @@ export class Game{
     if(this.ai)this.ai.update(this,dt);
     this.visionTimer-=dt;
     if(this.visionTimer<=0){this.updateVision();this.visionTimer=.15;}
+    this.updateDensity();
     const entities=this.entities(),entityById=new Map(entities.map(e=>[e.id,e]));
     this.stepUnits(dt,entities,entityById);
     this.stepTowers(dt,entities);
@@ -472,8 +480,20 @@ export class Game{
   consumeAudioEvents(){const events=this.audioEvents;this.audioEvents=[];return events;}
   move(u,amount){
     if(STATS[u.type].air&&!this.isFlying(u))return;
+    // 拥挤减速：同格超过 2 个单位才生效（下限 55%），窄口形成车流式通行而非互相推挤
+    const crowd=this.density[this.cellIndex(u.x,u.y)];
+    if(crowd>2)amount*=Math.max(.55,1-(crowd-2)*.12);
     const buildings=u.leavingId!=null?this.buildings.filter(b=>b.id!==u.leavingId):this.buildings;
     const wasInSlow=this.map.terrain[this.cellIndex(u.x,u.y)]!==0;
+    // 路径走廊跳过：被挤偏后只要仍在"当前路点→下一路点"线段旁的走廊内，就跳过当前路点，
+    // 顺着前方路点继续走，避免斜着回去够原格子中心、往回顶住后方单位
+    while(u.path.length>1){
+      const a=u.path[0],b=u.path[1],abx=b.x-a.x,aby=b.y-a.y,len2=abx*abx+aby*aby;
+      const t=len2?Math.max(0,Math.min(1,((u.x-a.x)*abx+(u.y-a.y)*aby)/len2)):0;
+      const px=a.x+abx*t,py=a.y+aby*t,dx=u.x-px,dy=u.y-py;
+      if(dx*dx+dy*dy>.25)break;
+      u.path.shift();
+    }
     while(u.path.length&&amount>0){const p=u.path[0],d=distance(u,p);if(!walkable(this.map,buildings,Math.floor(p.x),Math.floor(p.y),...this.terrainAvoidance(u))){u.path=[];u.repath=0;return;}u.facing=Math.atan2(p.y-u.y,p.x-u.x);if(d<=amount){u.x=p.x;u.y=p.y;u.path.shift();amount-=d;}else{u.x+=(p.x-u.x)/d*amount;u.y+=(p.y-u.y)/d*amount;amount=0;}}
     const avoidance=this.terrainAvoidance(u);if(wasInSlow&&(avoidance[0]||avoidance[1])){u.path=[];u.repath=0;}
   }
