@@ -117,6 +117,11 @@ export class Renderer{
     if(!all){
       c.imageSmoothingEnabled=false;c.drawImage(this.fogCanvas,0,0,W,H);
     }
+    const selectedBase=state.buildings.find(b=>b.id===selectedBuilding&&b.type==='base'&&b.hp>0&&b.rallyPoint);
+    if(selectedBase){
+      const p=selectedBase.rallyPoint;c.strokeStyle='#dce99bcc';c.fillStyle='#dce99b';c.lineWidth=.12;c.setLineDash([.35,.3]);c.beginPath();c.moveTo(selectedBase.x,selectedBase.y);c.lineTo(p.x,p.y);c.stroke();c.setLineDash([]);
+      c.beginPath();c.moveTo(p.x,p.y-1);c.lineTo(p.x,p.y+1);c.stroke();c.beginPath();c.moveTo(p.x,p.y-1);c.lineTo(p.x+1.1,p.y-.65);c.lineTo(p.x,p.y-.3);c.closePath();c.fill();
+    }
     if(buildPreview&&Number.isFinite(buildPreview.x)&&Number.isFinite(buildPreview.y)){
       const p=buildPreview,r=p.halfSize||2;c.fillStyle=p.error?'#e66d6355':'#b8e67a55';c.strokeStyle=p.error?'#f09080':'#dcff9e';c.lineWidth=.15;c.fillRect(p.x-r,p.y-r,r*2,r*2);c.strokeRect(p.x-r,p.y-r,r*2,r*2);
       c.fillStyle='#fff1d2';c.textAlign='center';c.font=`${Math.max(.8,12/z)}px "Microsoft YaHei"`;c.fillText(p.error||(p.evict?'单位将自动让位':'左键建造'),p.x,p.y+3);

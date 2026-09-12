@@ -9,7 +9,7 @@ export class Game{
   constructor(level='demo'){
     this.level=level;this.defense=null;
     this.map=level==='balanced'?createMapBalanced():level==='attack'?createMapAttack():level==='defend'?createMapDefend():createMap();
-    this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.time=0;this.nextId=1;
+    this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.audioEvents=[];this.time=0;this.nextId=1;
     this.food=1000;this.ore=1000;this.queue=[];this.aiFood=1000;this.aiOre=1000;this.aiQueue=[];
     this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
     this.visible=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];this.explored=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];
@@ -256,8 +256,8 @@ export class Game{
     if(this.result)return '战局已结束';
     const b=this.buildings.find(b=>b.id===id&&b.team===0&&b.hp>0);
     if(!b)return '请选择己方建筑';
-    b.hp=0;this.releaseBuilders(b);if(b.primary&&this.level!=='defend'){this.queue=[];this.result='defeat';}
-    if(this.level==='defend'&&!this.buildings.some(b=>b.team===0&&b.hp>0))this.result='defeat';
+    b.hp=0;this.releaseBuilders(b);if(b.primary&&!['defend','balanced'].includes(this.level)){this.queue=[];this.result='defeat';}
+    if(['defend','balanced'].includes(this.level)&&!this.buildings.some(b=>b.team===0&&b.hp>0))this.result='defeat';
     this.revision++;this.updateVision();return null;
   }
   // 进攻固定 120 人口、防守固定 100 人口；其他模式按已完工且存活的基地叠加。
@@ -273,6 +273,13 @@ export class Game{
     const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=this.popCap())return '人口已达上限';
     if(this.queue.filter(q=>q.baseId===base.id).length>=TRAIN_QUEUE_LIMIT)return '所选基地训练队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足，基地正在持续生产';
     this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:s.trainTime||3,baseId:base.id});this.revision++;return null;
+  }
+  setRallyPoint(baseId,point,team=0){
+    if(this.result)return '战局已结束';
+    const base=this.buildings.find(b=>b.id===baseId&&b.type==='base'&&b.team===team&&b.hp>0&&!b.constructionPending);
+    if(!base)return '请选择已完工的己方基地';
+    if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y)||point.x<0||point.y<0||point.x>=this.map.width||point.y>=this.map.height)return '请在地图范围内设置集结点';
+    base.rallyPoint={x:point.x,y:point.y};this.revision++;return null;
   }
   // AI 训练：与玩家相同的费用、人口与队列规则，使用 AI 自己的资源
   aiTrain(type){
@@ -303,6 +310,7 @@ export class Game{
       const n=this.units.filter(u=>u.team===team).length;
       const u=this.addUnit(q.type,team,base.x+(team?-3:3)+(team?-1:1)*(n%3),base.y+3+Math.floor(n%9/3));
       if(team===1){u.home={x:u.x,y:u.y};u.role=this.level==='balanced'?'army':'guard';}
+      if(base.rallyPoint)this.command([u.id],'move',base.rallyPoint,null,false,false,team);
     }
   }
   step(dt){
@@ -382,8 +390,8 @@ export class Game{
           u.facing=Math.atan2(target.y-u.y,target.x-u.x);
           if(u.cooldown<=0){u.cooldown=s.cooldown;u.revealUntil=this.time+2;
             const dmg=this.attackDamage(u,target);
-            if(u.type==='archer')this.projectiles.push({x:u.x,y:u.y,fromX:u.x,fromY:u.y,targetId:target.id,team:u.team,damage:dmg,life:2});
-            else{this.damage(target,dmg);this.effects.push({x:target.x,y:target.y,team:u.team,kind:'hit',life:.22,maxLife:.22});}
+            if(u.type==='archer'){this.projectiles.push({x:u.x,y:u.y,fromX:u.x,fromY:u.y,targetId:target.id,team:u.team,damage:dmg,life:2});this.audioEvents.push('archerFire');}
+            else{this.damage(target,dmg);this.effects.push({x:target.x,y:target.y,team:u.team,kind:'hit',life:.22,maxLife:.22});if(u.type==='shield')this.audioEvents.push('shieldAttack');}
           }
           continue;
         }
@@ -413,6 +421,10 @@ export class Game{
     if(this.level==='defend'){
       if(!this.buildings.some(b=>b.team===0&&b.hp>0))this.result='defeat';
       else if(this.defense.wave===2&&!this.units.some(u=>u.team===1&&u.hp>0))this.result='victory';
+    }
+    else if(this.level==='balanced'){
+      if(!this.buildings.some(b=>b.team===0&&b.hp>0))this.result='defeat';
+      else if(this.buildings.filter(b=>b.team===1).every(b=>b.hp<=0))this.result='victory';
     }
     else if(primary(0).hp<=0)this.result='defeat';
     else if(this.buildings.filter(b=>b.team===1).every(b=>b.hp<=0))this.result='victory';
@@ -465,6 +477,7 @@ export class Game{
     }
   }
   damage(e,amount){e.hp=Math.max(0,e.hp-Math.max(1,amount-STATS[e.type].armor));e.lastDamagedAt=this.time;}
+  consumeAudioEvents(){const events=this.audioEvents;this.audioEvents=[];return events;}
   move(u,amount){
     if(STATS[u.type].air&&!this.isFlying(u))return;
     const buildings=u.leavingId!=null?this.buildings.filter(b=>b.id!==u.leavingId):this.buildings;

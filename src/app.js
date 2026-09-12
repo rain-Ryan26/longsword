@@ -1,7 +1,8 @@
 import {Game,TRAIN_QUEUE_LIMIT} from './core.js';
 import {Renderer} from './renderer.js';
 import {SnapshotHost,SnapshotReceiver} from './sync.js';
-import {STATS,W,H} from './data.js';
+import {STATS,W,H,isSlowTerrain} from './data.js';
+import {AudioManager} from './audio.js';
 const $=id=>document.getElementById(id);
 const params=new URLSearchParams(location.search),observer=params.has('observe');
 const session=params.get('session')||crypto.randomUUID();
@@ -19,13 +20,26 @@ const receiver=observer?new SnapshotReceiver(crypto.randomUUID()):null;
 let lastHello=-Infinity;
 const controlGroups=new Map();
 let lastUnitClick=null,lastRightClick=null;
-let buildMenu=false,buildType=null,selectedBuilding=null,buildPreview=null;
+let buildMenu=false,buildType=null,selectedBuilding=null,buildPreview=null,rallyBaseId=null;
 let state=game?.snapshot(),selected=new Set(),view=observer?1:0,attackMode=false,drag=null,marker=null,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer,missionIntroTimer;
 const renderer=new Renderer($('game'),$('minimap'));renderer.resize();if(observer)renderer.camera={x:W/2,y:H/2,zoom:Math.max(5,Math.min(renderer.width/W,renderer.height/H)*.88)};$('perspective').value=view;
+const audio=new AudioManager(),settingsPanel=$('settings-panel');
+function syncAudioSettings(){const {master,effects,muted}=audio.settings;$('master-volume').value=master;$('effects-volume').value=effects;$('sound-muted').checked=muted;$('master-volume-value').textContent=`${master}%`;$('effects-volume-value').textContent=`${effects}%`;}
+function setSettings(open){settingsPanel.hidden=!open;$('settings').setAttribute('aria-expanded',String(open));if(open)$('master-volume').focus();else $('settings').focus();}
+$('settings').onclick=()=>setSettings(true);$('settings-close').onclick=()=>setSettings(false);
+for(const id of ['master-volume','effects-volume'])$(id).addEventListener('input',()=>{audio.save({[id==='master-volume'?'master':'effects']:Number($(id).value)});syncAudioSettings();});
+$('sound-muted').addEventListener('change',()=>{audio.save({muted:$('sound-muted').checked});syncAudioSettings();});
+$('test-shield-sound').onclick=()=>{audio.unlock();audio.play('shieldAttack');};$('test-archer-sound').onclick=()=>{audio.unlock();audio.play('archerFire');};syncAudioSettings();
 for(const type of ['base','mine','tower','factory'])$(`build-${type}`).textContent=`${STATS[type].name} [${{base:'C',mine:'R',tower:'Q',factory:'F'}[type]}] · ${STATS[type].ore} 矿 / ${STATS[type].food} 食物`;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),2600);}
 function setAttack(on){if(on)closeBuild();attackMode=on;$('game').style.cursor=on?'crosshair':'default';$('mode-hint').textContent=observer?'观察窗口 · 滚轮缩放 · 中键拖动':on?'攻击移动：左键指定位置 · Esc 取消':'左键选择 · 右键移动';}
-function closeBuild(){buildMenu=false;buildType=null;selectedBuilding=null;buildPreview=null;setAttack(false);}
+function closeBuild(){buildMenu=false;buildType=null;selectedBuilding=null;buildPreview=null;rallyBaseId=null;setAttack(false);}
+function enterRallyMode(){
+  const base=game.buildings.find(b=>b.id===selectedBuilding&&b.team===0&&b.type==='base'&&b.hp>0&&!b.constructionPending);
+  if(!base){toast('请先选中己方已完工基地');return;}
+  buildMenu=false;buildType=null;buildPreview=null;attackMode=false;rallyBaseId=base.id;
+  $('game').style.cursor='crosshair';$('mode-hint').textContent='设置集结点：左键点击地图 · Esc 取消';
+}
 function previewAt(p){
   const placement=game.placement(buildType,renderer.world(p.x,p.y)),s=STATS[buildType];
   buildPreview={...placement,halfSize:s.halfSize||2,error:placement.error||(game.food<s.food||game.ore<s.ore?'资源不足':null),evict:!placement.error&&placement.evict};
@@ -84,16 +98,16 @@ function issue(p,attack,append=false,allowMountains=false,groundOnly=false){
 const canvas=$('game');
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('pointerdown',e=>{if(!state)return;const p=local(e);if(e.button!==2)lastRightClick=null;if(e.button===1){e.preventDefault();drag={kind:'pan',sx:p.x,sy:p.y,x:p.x,y:p.y,cx:renderer.camera.x,cy:renderer.camera.y};canvas.setPointerCapture(e.pointerId);return;}if(observer)return;if(e.button===2){
-  e.preventDefault();if(buildMenu||buildType){closeBuild();updateHud();return;}const world=renderer.world(p.x,p.y),now=performance.now();
-  const mountain=world.x>=0&&world.x<state.map.width&&world.y>=0&&world.y<state.map.height&&state.map.terrain[Math.floor(world.y)*state.map.width+Math.floor(world.x)]===1;
+  e.preventDefault();if(buildMenu||buildType||rallyBaseId){closeBuild();updateHud();return;}const world=renderer.world(p.x,p.y),now=performance.now();
+  const slowTerrain=world.x>=0&&world.x<state.map.width&&world.y>=0&&world.y<state.map.height&&isSlowTerrain(state.map.terrain[Math.floor(world.y)*state.map.width+Math.floor(world.x)]);
   const doubleClick=!e.shiftKey&&selected.size>0&&lastRightClick&&now-lastRightClick.time<350&&Math.hypot(p.x-lastRightClick.x,p.y-lastRightClick.y)<6;
   const inMap=world.x>=0&&world.x<state.map.width&&world.y>=0&&world.y<state.map.height;
   const flyingBefore=game.units.filter(u=>selected.has(u.id)&&game.isFlying(u)).map(u=>u.id);
   if(doubleClick&&inMap)game.toggleFlight(flyingBefore.filter(id=>lastRightClick.flyingIds.includes(id)),world);
-  issue(p,false,e.shiftKey,!!doubleClick&&mountain,!!doubleClick);
+  issue(p,false,e.shiftKey,!!doubleClick&&slowTerrain,!!doubleClick);
   lastRightClick=!e.shiftKey&&inMap&&!doubleClick?{x:p.x,y:p.y,time:now,flyingIds:flyingBefore}:null;
   return;
-}if(e.button===0){if(buildType){const evict=!!buildPreview?.evict;const error=game.build([...selected],buildType,renderer.world(p.x,p.y));toast(error||(evict?'区域内单位将自动让位，随后开始施工':`已派遣最多 ${STATS[buildType].maxBuilders||4} 名选中部队前往施工`));if(!error)closeBuild();else previewAt(p);sendSnapshot();updateHud();return;}if(attackMode){issue(p,true);return;}drag={kind:'select',sx:p.x,sy:p.y,x:p.x,y:p.y,shift:e.shiftKey};canvas.setPointerCapture(e.pointerId);}});
+}if(e.button===0){if(rallyBaseId){const error=game.setRallyPoint(rallyBaseId,renderer.world(p.x,p.y));toast(error||'集结点已设置');if(!error){rallyBaseId=null;setAttack(false);}sendSnapshot();updateHud();return;}if(buildType){const evict=!!buildPreview?.evict;const error=game.build([...selected],buildType,renderer.world(p.x,p.y));toast(error||(evict?'区域内单位将自动让位，随后开始施工':`已派遣最多 ${STATS[buildType].maxBuilders||4} 名选中部队前往施工`));if(!error)closeBuild();else previewAt(p);sendSnapshot();updateHud();return;}if(attackMode){issue(p,true);return;}drag={kind:'select',sx:p.x,sy:p.y,x:p.x,y:p.y,shift:e.shiftKey};canvas.setPointerCapture(e.pointerId);}});
 canvas.addEventListener('pointermove',e=>{if(buildType&&game)previewAt(local(e));if(!drag)return;const p=local(e);drag.x=p.x;drag.y=p.y;if(drag.kind==='pan'){renderer.camera.x=drag.cx-(p.x-drag.sx)/renderer.camera.zoom;renderer.camera.y=drag.cy-(p.y-drag.sy)/renderer.camera.zoom;renderer.clamp();}});
 canvas.addEventListener('pointerup',e=>{if(!drag)return;if(drag.kind==='select'){
   closeBuild();if(!drag.shift)selected.clear();const click=Math.hypot(drag.x-drag.sx,drag.y-drag.sy)<5;
@@ -126,6 +140,7 @@ canvas.addEventListener('wheel',e=>{lastRightClick=null;e.preventDefault();const
 $('minimap').addEventListener('pointerdown',e=>{lastRightClick=null;const r=$('minimap').getBoundingClientRect();if(!state)return;renderer.camera.x=(e.clientX-r.left)/r.width*state.map.width;renderer.camera.y=(e.clientY-r.top)/r.height*state.map.height;renderer.clamp();});
 window.addEventListener('keydown',e=>{
   lastRightClick=null;
+  if(e.key==='Escape'&&!settingsPanel.hidden){e.preventDefault();setSettings(false);return;}
   if(e.target.matches('input, textarea, select')||e.target.isContentEditable)return;
   const key=e.key.toLowerCase();
   if(/^[0-9]$/.test(key)&&!e.altKey&&!e.metaKey&&!e.shiftKey){
@@ -153,6 +168,7 @@ window.addEventListener('keydown',e=>{
     $('build-'+type).click();return;
   }
   if(key==='b'){e.preventDefault();closeBuild();if([...selected].some(id=>game.units.some(u=>u.id===id&&u.team===0&&u.hp>0))){buildMenu=true;updateHud();}else toast('请先选择部队');}
+  if(key==='y'){e.preventDefault();enterRallyMode();}
   if(key==='a'){e.preventDefault();if(selected.size)setAttack(true);else toast('请先选择部队');}
   if(key==='s'){e.preventDefault();stop();}
 });
@@ -183,16 +199,16 @@ function updateHud(){
   for(const type of ['shield','archer','wilddog','pigeon'])$('base-train-'+type).disabled=!!state.result||!building||!!building.constructionPending||baseQueue.length>=TRAIN_QUEUE_LIMIT||state.units.filter(u=>u.team===0&&u.hp>0).length+state.queue.length>=state.popCap||state.food<STATS[type].food||state.ore<STATS[type].ore;
 
   $('building-title').textContent=building?STATS[building.type].name:'建造菜单 · B';
-  $('building-info').textContent=building?`生命 ${Math.ceil(building.hp)} / ${building.maxHp} · ${building.awaitingEviction?'等待区域内部队离开，随后自动施工':building.constructionPending?(building.activeBuilders?`施工 ${building.activeBuilders} 人 · 预计剩余 ${Math.ceil(building.constructionRemaining/building.activeBuilders)} 秒`:'等待施工人员到场 · 可选中部队右键补派'):building.type==='base'?'不产资源；6 格内最多治疗 5 人，每人每秒 +2 生命。提供 40 人口。初始基地拆除将判负。':building.type==='mine'?'每秒 +5 矿产':building.type==='factory'?`每秒 +${(state.map.foodPoints||[]).some(n=>Math.abs(building.x-n.x-.5)<1.5&&Math.abs(building.y-n.y-.5)<1.5)?'6 食物（食物点 ×2）':'3 食物'}`:'驻守弓箭兵 · 视野 15.6 / 射程 10.4'}`:buildType?`左键放置${STATS[buildType].name}，绿色可建 / 红色不可建。`:'C 基地 / R 采矿场 / Q 哨塔 / F 食物厂，选择后左键选址。';
+  $('building-info').textContent=building?`生命 ${Math.ceil(building.hp)} / ${building.maxHp} · ${building.awaitingEviction?'等待区域内部队离开，随后自动施工':building.constructionPending?(building.activeBuilders?`施工 ${building.activeBuilders} 人 · 预计剩余 ${Math.ceil(building.constructionRemaining/building.activeBuilders)} 秒`:'等待施工人员到场 · 可选中部队右键补派'):building.type==='base'?`不产资源；6 格内最多治疗 5 人，每人每秒 +2 生命。提供 40 人口。按 Y 设置集结点${building.rallyPoint?` · 当前 ${building.rallyPoint.x.toFixed(1)}, ${building.rallyPoint.y.toFixed(1)}`:''}。`:building.type==='mine'?'每秒 +5 矿产':building.type==='factory'?`每秒 +${(state.map.foodPoints||[]).some(n=>Math.abs(building.x-n.x-.5)<1.5&&Math.abs(building.y-n.y-.5)<1.5)?'6 食物（食物点 ×2）':'3 食物'}`:'驻守弓箭兵 · 视野 15.6 / 射程 10.4'}`:buildType?`左键放置${STATS[buildType].name}，绿色可建 / 红色不可建。`:'C 基地 / R 采矿场 / Q 哨塔 / F 食物厂，选择后左键选址。';
   if(building){$('selection-title').textContent=STATS[building.type].name;$('selection-count').textContent='1';$('selection-info').textContent='侧栏面板可拆除建筑。';}
   for(const type of ['base','mine','tower','factory'])$('build-'+type).disabled=!!state.result||state.food<STATS[type].food||state.ore<STATS[type].ore;
   $('result').hidden=!state.result;if(state.result){
     const copy={balanced:['敌建筑全毁','敌方全部建筑已摧毁，均衡对抗胜利。','保护经济建筑，集结部队后再出击。'],demo:['敌营已摧毁','两座敌营已摧毁，本次行动胜利。','调整阵型，保护弓箭兵，再试一次。'],attack:['敌建筑全毁','敌方建筑全部摧毁，进攻胜利。','敌军防守严密，尝试先削弱其经济或集火逐个击破。'],defend:['防线守住了','两波敌军已全部消灭，我方仍有建筑存活。','防线被突破，试试哨塔与弓箭兵配合。']}[state.level||level];
-    $('result-title').textContent=state.result==='victory'?copy[0]:(state.level==='defend'?'我方建筑全毁':'基地已失守');$('result-copy').textContent=state.result==='victory'?copy[1]:copy[2];}
+    $('result-title').textContent=state.result==='victory'?copy[0]:(['defend','balanced'].includes(state.level)?'我方建筑全毁':'基地已失守');$('result-copy').textContent=state.result==='victory'?copy[1]:copy[2];}
   $('zoom-label').textContent=Math.round(renderer.camera.zoom/13*100)+'%';
 }
 // Simulation uses a timer so an observer can remain foreground while the host is hidden.
-setInterval(()=>{const now=performance.now();if(observer&&now-lastHello>=1000){channel.postMessage(receiver.message());lastHello=now;}const elapsed=Math.min((now-last)/1000,1);last=now;if(game){if(!paused&&!game.result){acc+=elapsed*speed;let steps=0;while(acc>=.05&&steps++<40){game.step(.05);acc-=.05;}}else acc=0;state=game.snapshot();if(now-lastSnapshot>=100){sendSnapshot();lastSnapshot=now;}}else if(now-lastReceived>3000){$('connection').hidden=false;$('connection').textContent=lastReceived?'主窗口未响应，请保持主窗口打开。':'等待主窗口的战局数据…';}if(now-lastHud>=150){updateHud();lastHud=now;}},50);
+setInterval(()=>{const now=performance.now();if(observer&&now-lastHello>=1000){channel.postMessage(receiver.message());lastHello=now;}const elapsed=Math.min((now-last)/1000,1);last=now;if(game){if(!paused&&!game.result){acc+=elapsed*speed;let steps=0;while(acc>=.05&&steps++<40){game.step(.05);acc-=.05;}for(const event of game.consumeAudioEvents())audio.play(event);}else acc=0;state=game.snapshot();if(now-lastSnapshot>=100){sendSnapshot();lastSnapshot=now;}}else if(now-lastReceived>3000){$('connection').hidden=false;$('connection').textContent=lastReceived?'主窗口未响应，请保持主窗口打开。':'等待主窗口的战局数据…';}if(now-lastHud>=150){updateHud();lastHud=now;}},50);
 const frameInterval=1000/120;
 let lastFrame=null;
 function frame(now){

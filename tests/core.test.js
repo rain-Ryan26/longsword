@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game,distance,TRAIN_QUEUE_LIMIT} from '../src/core.js';
 import {findPath,walkable} from '../src/pathfinding.js';
-import {W,H,STATS} from '../src/data.js';
+import {W,H,STATS,isSlowTerrain} from '../src/data.js';
 const advance=(g,t)=>{for(let n=0;n<t/.05;n++)g.step(.05);};
 test('基地、采矿场和食物厂采用当前建造成本',()=>{
   assert.deepEqual(
@@ -20,6 +20,15 @@ test('S 停止移动与开火，新命令恢复',()=>{const g=new Game(),u=g.uni
 test('弓箭延迟伤害、护甲扣减和射击暴露',()=>{const g=new Game();g.units=[];const a=g.addUnit('archer',0,35,31),b=g.addUnit('shield',1,42,31);b.holdFire=true;g.updateVision();g.step(.05);assert.equal(g.projectiles.length,1);assert.equal(b.hp,150);assert.ok(a.revealUntil>g.time);advance(g,.4);assert.equal(b.hp,139);});
 test('停火不使正常视野内单位隐身，射击暴露过期',()=>{const g=new Game();g.units=[];g.buildings=[];g.map.terrain.fill(0);const a=g.addUnit('shield',0,20,20),b=g.addUnit('shield',1,40,20);a.holdFire=true;g.updateVision();assert.equal(g.canSee(1,a),false);a.revealUntil=2;g.updateVision();assert.equal(g.canSee(1,a),true);g.time=3;g.updateVision();assert.equal(g.canSee(1,a),false);b.x=24;g.updateVision();assert.equal(g.canSee(1,a),true);});
 test('训练扣费、出兵与人口上限',()=>{const g=new Game();assert.equal(g.train('shield'),null);assert.equal(g.food,950);assert.equal(g.ore,990);advance(g,4.1);assert.equal(g.units.filter(u=>u.team===0).length,15);assert.equal(g.queue.length,0);g.food=0;assert.match(g.train('archer'),/资源不足/);g.food=10000;g.ore=10000;while(g.units.filter(u=>u.team===0).length<40)g.addUnit('shield',0,18,36);assert.match(g.train('shield'),/人口/);});
+test('基地集结点独立保存，新单位出兵后自动前往',()=>{
+  const g=new Game(),base=g.buildings.find(b=>b.team===0&&b.type==='base'),before=new Set(g.units.map(u=>u.id));
+  assert.equal(g.setRallyPoint(base.id,{x:35,y:32}),null);
+  assert.deepEqual(base.rallyPoint,{x:35,y:32});
+  assert.equal(g.train('shield',base.id),null);advance(g,4.1);
+  const unit=g.units.find(u=>!before.has(u.id));
+  assert.equal(unit.order,'move');assert.ok(unit.goal);assert.ok(distance(unit.goal,base.rallyPoint)<1);
+  assert.match(g.setRallyPoint(base.id,{x:-1,y:2}),/地图范围/);
+});
 test('每座基地独立并行训练，单基地队列上限为 50',()=>{
   const g=new Game();g.units=[];g.food=g.ore=100000;
   const first=g.buildings.find(b=>b.team===0&&b.type==='base'),second=g.addBuilding('base',0,30,50);
@@ -157,6 +166,7 @@ test('默认绕行山地且不斜穿山地墙角，双击模式允许进入',()=
   assert.equal(g.movementSpeed(u),STATS.shield.speed*.2);
 });
 test('默认绕行森林且不斜穿森林墙角，双击模式允许进入',()=>{
+  assert.equal(isSlowTerrain(0),false);assert.equal(isSlowTerrain(1),true);assert.equal(isSlowTerrain(2),true);
   const g=new Game();g.units=[];g.map.terrain.fill(0);
   for(let x=40;x<=52;x++)g.map.terrain[16*W+x]=2;
   const u=g.addUnit('shield',0,30,16);

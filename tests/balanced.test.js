@@ -31,6 +31,20 @@ test('均衡地图：四片山脉、九组资源、对角出生与独立地图�
   assert.ok(path.at(-1).x>120); // 创建普通关卡不会改变已有大地图的寻路宽度。
 });
 
+test('均衡对抗：初始基地失去不判负，己方建筑全毁才失败',()=>{
+  for(const demolish of [true,false]){
+    const g=new Game('balanced');g.ai=null;
+    const buildings=g.buildings.filter(b=>b.team===0),base=buildings.find(b=>b.primary);
+    if(demolish)assert.equal(g.demolish(base.id),null);else g.damage(base,99999);
+    g.step(.05);assert.equal(g.result,null);
+    for(const b of buildings.filter(b=>!b.primary)){
+      if(demolish)assert.equal(g.demolish(b.id),null);else g.damage(b,99999);
+    }
+    if(!demolish)g.step(.05);
+    assert.equal(g.result,'defeat');
+  }
+});
+
 test('食物点：双方翻倍、普通产出、施工不产出、拆毁后资源保留',()=>{
   const g=new Game('balanced');g.ai=null;
   const factories=g.buildings.filter(b=>b.type==='factory');

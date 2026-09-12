@@ -3,6 +3,7 @@ export const W = 96, H = 64;
 // 侦测系数：陆地视线每经过一格消耗 1/系数 的侦测距离（森林贵、山地省）。
 export const DETECTION_MULTIPLIERS = [1, 1.2, 0.3];
 export const MOVEMENT_MULTIPLIERS = [1, 0.2, 0.6];
+export const isSlowTerrain = terrain=>terrain===1||terrain===2;
 export const STATS = {
   shield:{name:'盾兵',hp:100,armor:4,damage:14,cooldown:.85,range:1.5,speed:1.6,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false},
   archer:{name:'弓箭兵',hp:75,armor:1,damage:15,cooldown:1.2,range:7,speed:1.75,vision:10,food:50,ore:10,trainTime:4,movable:true,air:false,antiAir:true},
