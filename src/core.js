@@ -1,4 +1,4 @@
-import {STATS,createMap,createMapAttack,createMapBalanced,createMapDefend,DETECTION_MULTIPLIERS,MOVEMENT_MULTIPLIERS} from './data.js';
+import {STATS,TECHNOLOGIES,createMap,createMapAttack,createMapBalanced,createMapDefend,DETECTION_MULTIPLIERS,MOVEMENT_MULTIPLIERS} from './data.js';
 import {findPath,nearestFree,walkable,buildingCells,spawnPoint} from './pathfinding.js';
 import {DefendAI,AssaultAI,BalancedAI} from './ai.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -10,7 +10,9 @@ export class Game{
     this.level=level;this.defense=null;
     this.map=level==='balanced'?createMapBalanced():level==='attack'?createMapAttack():level==='defend'?createMapDefend():createMap();
     this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.audioEvents=[];this.time=0;this.nextId=1;
-    this.food=1000;this.ore=1000;this.queue=[];this.aiFood=1000;this.aiOre=1000;this.aiQueue=[];
+    const playerStart=(level==='attack'||level==='defend')?5000:1000,aiStart=(level==='attack'||level==='defend')?2000:1000;
+    this.food=playerStart;this.ore=playerStart;this.queue=[];this.aiFood=aiStart;this.aiOre=aiStart;this.aiQueue=[];
+    this.technologies=Object.fromEntries(Object.keys(TECHNOLOGIES).map(id=>[id,{status:level==='demo'?'complete':'locked',remaining:0}]));
     this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
     this.visible=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];this.explored=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];
     if(level==='balanced'){this.aiFood=500;this.aiOre=500;}
@@ -36,6 +38,7 @@ export class Game{
     }
     if(this.level==='demo'){
       this.addBuilding('base',0,12,32).primary=true;
+      this.addBuilding('machineFactory',0,6,32);
       this.map.camps.forEach((p,i)=>{this.addBuilding('camp',1,p.x,p.y);for(let n=0;n<7;n++){const u=this.addUnit(n<4?'shield':'archer',1,p.x-6+(n%3)*2,p.y-4+Math.floor(n/3)*3);u.home={x:u.x,y:u.y};u.role='guard';u.camp=i;}});
       for(let n=0;n<14;n++)this.addUnit(n<8?'shield':'archer',0,19+(n%4)*2,27+Math.floor(n/4)*2.2);
       for(let n=0;n<5;n++){const u=this.addUnit(n<3?'shield':'archer',1,57+n*1.3,29);u.role='patrol';u.patrolIndex=0;}
@@ -45,6 +48,7 @@ export class Game{
       const firstWave=Math.random()<.5?40:60;
       this.defense={sizes:[firstWave,firstWave/2],wave:0,nextWaveAt:120};
       this.addBuilding('base',0,12,32).primary=true;
+      this.addBuilding('machineFactory',0,6,32);
       this.addBuilding('mine',0,22.5,40.5);
       this.addBuilding('factory',0,16.5,22.5);
       this.spawnDefenseArmy(firstWave,0);
@@ -53,6 +57,7 @@ export class Game{
     }
     // 双方经济建筑直接完工。
     this.addBuilding('base',0,12,32).primary=true;
+    this.addBuilding('machineFactory',0,6,32);
     this.addBuilding('mine',0,22.5,40.5);
     this.addBuilding('factory',0,16.5,22.5);
     this.addBuilding('base',1,84,32).primary=true;
@@ -166,7 +171,7 @@ export class Game{
     });
   }
   placement(type,point,team=0){
-    if(!['base','mine','tower','factory'].includes(type))return {error:'未知建筑'};
+    if(!['base','mine','tower','factory','machineFactory'].includes(type))return {error:'未知建筑'};
     const r=STATS[type].halfSize||2,odd=(r*2)%2===1;
     // 建筑按区块（整格）占地：奇数尺寸中心在区块中心（x.5），偶数尺寸中心在格点上
     let p={x:odd?Math.floor(point.x)+.5:Math.round(point.x),y:odd?Math.floor(point.y)+.5:Math.round(point.y)};
@@ -267,36 +272,61 @@ export class Game{
     if(this.level==='defend')return 100;
     return this.buildings.reduce((n,b)=>n+(b.team===team&&b.hp>0&&!b.constructionPending?STATS[b.type].pop||0:0),0);
   }
-  train(type,baseId=null){
-    if(!['shield','ironShield','archer','crossbow','armoredCar','steamWalker','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
-    const base=this.buildings.find(b=>b.type==='base'&&b.team===0&&b.hp>0&&!b.constructionPending&&(baseId===null||b.id===baseId));
-    if(!base)return '请选择已完工的基地';
-    const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=this.popCap())return '人口已达上限';
-    if(this.queue.filter(q=>q.baseId===base.id).length>=TRAIN_QUEUE_LIMIT)return '所选基地训练队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足，基地正在持续生产';
-    this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:s.trainTime||3,baseId:base.id});this.revision++;return null;
+  technologyComplete(id){return this.technologies[id]?.status==='complete';}
+  research(id){
+    if(this.result||!TECHNOLOGIES[id])return '当前不能研发';
+    const tech=this.technologies[id];
+    if(tech.status==='complete')return '科技已完成';
+    if(tech.status==='researching')return '科技正在研发';
+    const s=TECHNOLOGIES[id];if(this.food<s.food||this.ore<s.ore)return '资源不足';
+    this.food-=s.food;this.ore-=s.ore;tech.status='researching';tech.remaining=s.researchTime;this.revision++;return null;
   }
-  cancelTraining(baseId,queueIndex){
+  stepTechnologies(dt){
+    for(const tech of Object.values(this.technologies))if(tech.status==='researching'){
+      tech.remaining=Math.max(0,tech.remaining-dt);
+      if(tech.remaining<=0){tech.remaining=0;tech.status='complete';}
+    }
+  }
+  productionType(type,team=0){
+    if(team!==0)return type;
+    if(type==='shield'&&this.technologyComplete('compositeShield'))return 'ironShield';
+    if(type==='archer'&&this.technologyComplete('precisionBolts'))return 'crossbow';
+    return type;
+  }
+  train(type,producerId=null){
+    if(!['shield','archer','armoredCar','steamWalker','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
+    const machine=!!STATS[type].machine,producerType=machine?'machineFactory':'base';
+    if(type==='armoredCar'&&!this.technologyComplete('castIron'))return '需要先完成铸铁装甲';
+    if(type==='steamWalker'&&!['castIron','artillery','steamCore'].every(id=>this.technologyComplete(id)))return '需要先完成铸铁装甲、火炮和蒸汽核心';
+    const producer=this.buildings.find(b=>b.type===producerType&&b.team===0&&b.hp>0&&!b.constructionPending&&(producerId===null||b.id===producerId));
+    if(!producer)return machine?'请选择已完工的机械工厂':'请选择已完工的基地';
+    const s=STATS[type];if(this.units.filter(u=>u.team===0&&u.hp>0).length+this.queue.length>=this.popCap())return '人口已达上限';
+    if(this.queue.filter(q=>q.baseId===producer.id).length>=TRAIN_QUEUE_LIMIT)return '所选生产建筑队列已满';if(this.food<s.food||this.ore<s.ore)return '资源不足';
+    this.food-=s.food;this.ore-=s.ore;this.queue.push({type,remaining:s.trainTime||3,baseId:producer.id});this.revision++;return null;
+  }
+  cancelTraining(producerId,queueIndex){
     if(this.result)return '战局已结束';
-    const base=this.buildings.find(b=>b.id===baseId&&b.type==='base'&&b.team===0&&b.hp>0&&!b.constructionPending);
-    if(!base)return '请选择已完工的基地';
-    const entries=this.queue.filter(q=>q.baseId===base.id),q=entries[queueIndex];
+    const producer=this.buildings.find(b=>b.id===producerId&&['base','machineFactory'].includes(b.type)&&b.team===0&&b.hp>0&&!b.constructionPending);
+    if(!producer)return '请选择已完工的生产建筑';
+    const entries=this.queue.filter(q=>q.baseId===producer.id),q=entries[queueIndex];
     if(!q)return '训练项目不存在';
     this.queue.splice(this.queue.indexOf(q),1);
     this.food+=STATS[q.type].food;this.ore+=STATS[q.type].ore;this.revision++;return null;
   }
-  setRallyPoint(baseId,point,team=0){
+  setRallyPoint(producerId,point,team=0){
     if(this.result)return '战局已结束';
-    const base=this.buildings.find(b=>b.id===baseId&&b.type==='base'&&b.team===team&&b.hp>0&&!b.constructionPending);
-    if(!base)return '请选择已完工的己方基地';
+    const producer=this.buildings.find(b=>b.id===producerId&&['base','machineFactory'].includes(b.type)&&b.team===team&&b.hp>0&&!b.constructionPending);
+    if(!producer)return '请选择已完工的己方生产建筑';
     if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y)||point.x<0||point.y<0||point.x>=this.map.width||point.y>=this.map.height)return '请在地图范围内设置集结点';
-    base.rallyPoint={x:point.x,y:point.y};this.revision++;return null;
+    producer.rallyPoint={x:point.x,y:point.y};this.revision++;return null;
   }
   // AI 训练：与玩家相同的费用、人口与队列规则，使用 AI 自己的资源
   aiTrain(type){
     if(!['shield','ironShield','archer','crossbow','armoredCar','steamWalker','wilddog','pigeon'].includes(type)||this.result)return '当前不能训练';
-    const bases=this.buildings.filter(b=>b.type==='base'&&b.team===1&&b.hp>0&&!b.constructionPending);
-    const base=bases.sort((a,b)=>this.aiQueue.filter(q=>q.baseId===a.id).length-this.aiQueue.filter(q=>q.baseId===b.id).length||a.id-b.id)[0];
-    if(!base)return 'AI 无可用基地';
+    const producerType=STATS[type].machine?'machineFactory':'base';
+    const producers=this.buildings.filter(b=>b.type===producerType&&b.team===1&&b.hp>0&&!b.constructionPending);
+    const base=producers.sort((a,b)=>this.aiQueue.filter(q=>q.baseId===a.id).length-this.aiQueue.filter(q=>q.baseId===b.id).length||a.id-b.id)[0];
+    if(!base)return producerType==='base'?'AI 无可用基地':'AI 无可用机械工厂';
     const s=STATS[type];
     const cap=this.popCap(1);
     if(this.units.filter(u=>u.team===1&&u.hp>0).length+this.aiQueue.length>=cap)return '人口已达上限';
@@ -309,23 +339,24 @@ export class Game{
     return (this.map.foodPoints||[]).some(n=>n.x>=c.x0&&n.x<=c.x1&&n.y>=c.y0&&n.y<=c.y1)?6:3;
   }
   stepTrainingQueue(queue,team,dt){
-    const liveBases=this.buildings.filter(b=>b.type==='base'&&b.team===team&&b.hp>0&&!b.constructionPending);
-    const liveIds=new Set(liveBases.map(b=>b.id));
+    const producers=this.buildings.filter(b=>['base','machineFactory'].includes(b.type)&&b.team===team&&b.hp>0&&!b.constructionPending);
+    const liveIds=new Set(producers.map(b=>b.id));
     for(let i=queue.length-1;i>=0;i--)if(!liveIds.has(queue[i].baseId))queue.splice(i,1);
-    for(const base of liveBases){
-      const index=queue.findIndex(q=>q.baseId===base.id);if(index<0)continue;
+    for(const producer of producers){
+      const index=queue.findIndex(q=>q.baseId===producer.id);if(index<0)continue;
       const q=queue[index];q.remaining-=dt;
       if(q.remaining>0)continue;
       queue.splice(index,1);
       const n=this.units.filter(u=>u.team===team).length;
-      const p=spawnPoint(this.map,this.buildings,base,n);
-      const u=this.addUnit(q.type,team,p.x,p.y);
+      const p=spawnPoint(this.map,this.buildings,producer,n);
+      const u=this.addUnit(this.productionType(q.type,team),team,p.x,p.y);
       if(team===1){u.home={x:u.x,y:u.y};u.role=this.level==='balanced'?'army':'guard';}
-      if(base.rallyPoint)this.command([u.id],'move',base.rallyPoint,null,false,false,team);
+      if(producer.rallyPoint)this.command([u.id],'move',producer.rallyPoint,null,false,false,team);
     }
   }
   step(dt){
     if(this.result)return;this.revision++;this.time+=dt;
+    this.stepTechnologies(dt);
     const healed=new Set();
     for(const u of this.units)u.healing=false;
     for(const b of this.buildings){
@@ -507,5 +538,5 @@ export class Game{
       for(const [u,sign]of [[a,1],[b,-1]]){if(STATS[u.type].air)continue;const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
     }
   }
-  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,level:this.level,defense:this.defense?{...this.defense,sizes:[...this.defense.sizes]}:null,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,aiFood:this.aiFood,aiOre:this.aiOre,popCap:this.popCap(),queue:this.queue,result:this.result,visible:this.visible,explored:this.explored};}
+  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,level:this.level,defense:this.defense?{...this.defense,sizes:[...this.defense.sizes]}:null,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,aiFood:this.aiFood,aiOre:this.aiOre,popCap:this.popCap(),queue:this.queue,technologies:this.technologies,result:this.result,visible:this.visible,explored:this.explored};}
 }

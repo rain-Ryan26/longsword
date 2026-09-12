@@ -120,9 +120,9 @@ export class Renderer{
     if(!all){
       c.imageSmoothingEnabled=false;c.drawImage(this.fogCanvas,0,0,W,H);
     }
-    const selectedBase=state.buildings.find(b=>b.id===selectedBuilding&&b.type==='base'&&b.hp>0&&b.rallyPoint);
-    if(selectedBase){
-      const p=selectedBase.rallyPoint;c.strokeStyle='#dce99bcc';c.fillStyle='#dce99b';c.lineWidth=.12;c.setLineDash([.35,.3]);c.beginPath();c.moveTo(selectedBase.x,selectedBase.y);c.lineTo(p.x,p.y);c.stroke();c.setLineDash([]);
+    const selectedProducer=state.buildings.find(b=>b.id===selectedBuilding&&['base','machineFactory'].includes(b.type)&&b.hp>0&&b.rallyPoint);
+    if(selectedProducer){
+      const p=selectedProducer.rallyPoint;c.strokeStyle='#dce99bcc';c.fillStyle='#dce99b';c.lineWidth=.12;c.setLineDash([.35,.3]);c.beginPath();c.moveTo(selectedProducer.x,selectedProducer.y);c.lineTo(p.x,p.y);c.stroke();c.setLineDash([]);
       c.beginPath();c.moveTo(p.x,p.y-1);c.lineTo(p.x,p.y+1);c.stroke();c.beginPath();c.moveTo(p.x,p.y-1);c.lineTo(p.x+1.1,p.y-.65);c.lineTo(p.x,p.y-.3);c.closePath();c.fill();
     }
     if(buildPreview&&Number.isFinite(buildPreview.x)&&Number.isFinite(buildPreview.y)){

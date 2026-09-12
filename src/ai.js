@@ -181,11 +181,14 @@ export class BalancedAI{
     };
     if(!count('factory'))return resource('factory',game.map.foodPoints)||nearby('factory');
     if(!count('mine'))return resource('mine',game.map.resources);
-    if(units.length+game.aiQueue.length>=cap-8)return nearby('base');
     const playerSpawn=game.map.spawns[0],enemySpawn=game.map.spawns[1];
     const groups=game.map.resources.map((mine,i)=>({mine,food:game.map.foodPoints[i]}))
-      .filter(g=>g.food&&distance(g.mine,enemySpawn)<distance(g.mine,playerSpawn))
+      .filter(g=>g.food&&distance({x:(g.mine.x+g.food.x)/2,y:(g.mine.y+g.food.y)/2},enemySpawn)<distance({x:(g.mine.x+g.food.x)/2,y:(g.mine.y+g.food.y)/2},playerSpawn))
       .sort((a,b)=>distance(a.mine,enemySpawn)-distance(b.mine,enemySpawn));
+    // 尽早把第二组经济落到另一个点位，避免补塔、补人口拖到总攻前才开始扩张。
+    if(count('factory')<2){const factory=resource('factory',groups.map(g=>g.food));if(factory)return factory;}
+    if(count('mine')<2){const mine=resource('mine',groups.map(g=>g.mine));if(mine)return mine;}
+    if(units.length+game.aiQueue.length>=cap-8)return nearby('base');
     for(const group of groups){
       if(!own.some(b=>b.type==='mine'&&covers(b,group.mine))){
         const mine=game.placement('mine',{x:group.mine.x+.5,y:group.mine.y+.5},1);

@@ -94,6 +94,27 @@ test('AI 达到四十五名主力才主动出击，重损后回防',()=>{
   assert.ok(g.units.filter(u=>u.team===1).every(u=>u.aiOrderKey.startsWith('defend:')));
 });
 
+test('AI 建筑规划覆盖敌方半场四组资源，并为每组配置哨塔',()=>{
+  const g=new Game('balanced');g.visible[1].fill(1);g.units=[];
+  for(let i=0;i<20;i++){
+    const own=g.buildings.filter(b=>b.team===1&&b.hp>0),base=own.find(b=>b.primary);
+    const job=g.ai.planBuilding(g,own,[],base);
+    if(!job)break;
+    g.addBuilding(job.type,1,job.x,job.y);
+  }
+  const own=g.buildings.filter(b=>b.team===1&&b.hp>0),spawn=g.map.spawns[1],other=g.map.spawns[0];
+  const groups=g.map.resources.map((mine,i)=>({mine,food:g.map.foodPoints[i]}))
+    .filter(g=>distance({x:(g.mine.x+g.food.x)/2,y:(g.mine.y+g.food.y)/2},spawn)<distance({x:(g.mine.x+g.food.x)/2,y:(g.mine.y+g.food.y)/2},other));
+  const covers=(b,n)=>{const c=buildingCells(b);return n.x>=c.x0&&n.x<=c.x1&&n.y>=c.y0&&n.y<=c.y1;};
+  assert.equal(groups.length,4);
+  for(const group of groups){
+    assert.ok(own.some(b=>b.type==='mine'&&covers(b,group.mine)));
+    assert.ok(own.some(b=>b.type==='factory'&&covers(b,group.food)));
+    const center={x:(group.mine.x+group.food.x)/2+.5,y:(group.mine.y+group.food.y)/2+.5};
+    assert.ok(own.some(b=>b.type==='tower'&&distance(b,center)<=8));
+  }
+});
+
 test('自然经济长局：探图、多点扩张、哨塔、扩人口、积兵进攻与胜负',()=>{
   const g=new Game('balanced');let scouted=false,pushed=false,builtMine=false,builtTower=false;
   for(let i=0;i<6000&&!g.result;i++){
