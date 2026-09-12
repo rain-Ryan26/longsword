@@ -147,6 +147,12 @@ export class BalancedAI{
       game.command([u.id],'move',{x:p.x+.5,y:p.y+.5},null,false,false,1);
     });
   }
+  economicPriority(game){
+    // 以 6 盾 + 4 弓的一批补员和下一座基地作为储备标尺，比较两种资源的相对短缺。
+    const foodNeed=STATS.base.food+6*STATS.shield.food+4*STATS.archer.food;
+    const oreNeed=STATS.base.ore+6*STATS.shield.ore+4*STATS.archer.ore;
+    return game.aiFood/foodNeed<=game.aiOre/oreNeed?'factory':'mine';
+  }
   planBuilding(game,own,units,base){
     const count=type=>own.filter(b=>b.type===type).length;
     const cap=own.reduce((n,b)=>n+(!b.constructionPending?(STATS[b.type].pop||0):0),0);
@@ -179,23 +185,45 @@ export class BalancedAI{
       }
       return null;
     };
-    if(!count('factory'))return resource('factory',game.map.foodPoints)||nearby('factory');
-    if(!count('mine'))return resource('mine',game.map.resources);
+    const preferred=this.economicPriority(game);
+    const economyJob=(type,nodes)=>resource(type,nodes)||(type==='factory'?nearby(type):null);
+    if(!count('factory')&&!count('mine')){
+      const first=preferred==='factory'
+        ?economyJob('factory',game.map.foodPoints)
+        :economyJob('mine',game.map.resources);
+      return first||(preferred==='factory'
+        ?economyJob('mine',game.map.resources)
+        :economyJob('factory',game.map.foodPoints));
+    }
+    if(!count('factory'))return economyJob('factory',game.map.foodPoints);
+    if(!count('mine'))return economyJob('mine',game.map.resources);
     const playerSpawn=game.map.spawns[0],enemySpawn=game.map.spawns[1];
     const groups=game.map.resources.map((mine,i)=>({mine,food:game.map.foodPoints[i]}))
       .filter(g=>g.food&&distance({x:(g.mine.x+g.food.x)/2,y:(g.mine.y+g.food.y)/2},enemySpawn)<distance({x:(g.mine.x+g.food.x)/2,y:(g.mine.y+g.food.y)/2},playerSpawn))
       .sort((a,b)=>distance(a.mine,enemySpawn)-distance(b.mine,enemySpawn));
-    // 尽早把第二组经济落到另一个点位，避免补塔、补人口拖到总攻前才开始扩张。
+    // 尽早把第二组经济落到另一个点位，其中先建当前更短缺的资源建筑。
+    if(count('factory')<2&&count('mine')<2){
+      const first=preferred==='factory'
+        ?resource('factory',groups.map(g=>g.food))
+        :resource('mine',groups.map(g=>g.mine));
+      if(first)return first;
+    }
     if(count('factory')<2){const factory=resource('factory',groups.map(g=>g.food));if(factory)return factory;}
     if(count('mine')<2){const mine=resource('mine',groups.map(g=>g.mine));if(mine)return mine;}
     if(units.length+game.aiQueue.length>=cap-8)return nearby('base');
     for(const group of groups){
-      if(!own.some(b=>b.type==='mine'&&covers(b,group.mine))){
+      const hasMine=own.some(b=>b.type==='mine'&&covers(b,group.mine));
+      const hasFactory=own.some(b=>b.type==='factory'&&covers(b,group.food));
+      if(!hasMine&&!hasFactory&&preferred==='factory'){
+        const factory=game.placement('factory',{x:group.food.x+.5,y:group.food.y+.5},1);
+        if(!factory.error)return {...factory,type:'factory'};
+      }
+      if(!hasMine){
         const mine=game.placement('mine',{x:group.mine.x+.5,y:group.mine.y+.5},1);
         if(!mine.error)return {...mine,type:'mine'};
         continue;
       }
-      if(!own.some(b=>b.type==='factory'&&covers(b,group.food))){
+      if(!hasFactory){
         const factory=game.placement('factory',{x:group.food.x+.5,y:group.food.y+.5},1);
         if(!factory.error)return {...factory,type:'factory'};
         continue;

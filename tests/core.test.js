@@ -146,6 +146,18 @@ test('基地集结点独立保存，新单位出兵后自动前往',()=>{
   assert.equal(unit.order,'move');assert.ok(unit.goal);assert.ok(distance(unit.goal,base.rallyPoint)<1);
   assert.match(g.setRallyPoint(base.id,{x:-1,y:2}),/地图范围/);
 });
+test('集结点出兵自动避让山地和森林',()=>{
+  for(const terrain of [1,2]){
+    const g=new Game();g.units=[];g.queue=[];g.map.terrain.fill(0);
+    const base=g.buildings.find(b=>b.team===0&&b.type==='base'),rally={x:35.5,y:32.5};
+    for(let x=20;x<=30;x++)g.map.terrain[32*W+x]=terrain;
+    g.setRallyPoint(base.id,rally);
+    g.queue.push({type:'shield',remaining:0,baseId:base.id});g.stepTrainingQueue(g.queue,0,.05);
+    const u=g.units[0];assert.equal(u.allowMountains,false);assert.equal(u.allowForests,false);
+    assert.deepEqual(u.goal,rally);assert.ok(u.path.length>0);
+    assert.ok(u.path.every(p=>g.map.terrain[g.cellIndex(p.x,p.y)]!==terrain));
+  }
+});
 test('每座基地独立并行训练，单基地队列上限为 50',()=>{
   const g=new Game();g.units=[];g.food=g.ore=100000;
   const first=g.buildings.find(b=>b.team===0&&b.type==='base'),second=g.addBuilding('base',0,30,50);
@@ -317,6 +329,18 @@ test('强制穿山随追加路线保留，普通命令和停止清除',()=>{
     assert.deepEqual(u.waypoints,[]);
   }
 });
+test('BOT 寻路自动避让山地但允许穿越森林',()=>{
+  const g=new Game();g.units=[];g.map.terrain.fill(0);
+  const u=g.addUnit('shield',1,30,16),target={x:58.5,y:16.5};
+  for(let x=40;x<=52;x++)g.map.terrain[16*W+x]=1;
+  g.command([u.id],'attack',target,null,false,false,1);
+  assert.equal(u.allowMountains,false);assert.equal(u.allowForests,false);
+  assert.deepEqual(g.terrainAvoidance(u),[true,false]);
+  assert.ok(u.path.length>0);assert.ok(u.path.every(p=>g.map.terrain[g.cellIndex(p.x,p.y)]!==1));
+  g.map.terrain.fill(0);for(let x=40;x<=52;x++)g.map.terrain[16*W+x]=2;
+  u.x=30;u.y=16;g.command([u.id],'move',target,null,false,false,1);
+  assert.ok(u.path.some(p=>g.map.terrain[g.cellIndex(p.x,p.y)]===2));
+});
 
 
 test('采矿场选址、扣费、产矿、拆除与矿点复用',()=>{
@@ -400,6 +424,16 @@ test('信鸽为空中单位：无视地形移速与侦测，可直穿山地',()=
   assert.equal(u.path.length,0); // 飞行采用连续转向，不走地面 A*
   advance(g,30);assert.ok(Math.abs(distance(u,u.goal)-4)<.03);
   const foodBefore=g.food;assert.equal(g.train('pigeon'),null);assert.ok(Math.abs(g.food-(foodBefore-60))<1e-9);
+});
+test('飞行单位经过森林时只看见正下方格子的地面单位',()=>{
+  const g=new Game();g.units=[];g.buildings=[];g.map.terrain.fill(2);
+  g.addUnit('pigeon',0,30.25,32.25);
+  const under=g.addUnit('shield',1,30.75,32.75),nearby=g.addUnit('shield',1,31.25,32.25);
+  under.holdFire=true;nearby.holdFire=true;g.updateVision();
+  assert.equal(g.canSee(0,under),true);
+  assert.equal(g.canSee(0,nearby),false);
+  assert.equal(g.visible[0][g.cellIndex(30.25,32.25)],1);
+  assert.equal(g.explored[0][g.cellIndex(31.25,32.25)],1);
 });
 test('地面近战不能攻击空中单位',()=>{
   const g=new Game();g.units=[];g.map.terrain.fill(0);

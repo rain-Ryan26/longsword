@@ -94,6 +94,16 @@ test('AI 达到四十五名主力才主动出击，重损后回防',()=>{
   assert.ok(g.units.filter(u=>u.team===1).every(u=>u.aiOrderKey.startsWith('defend:')));
 });
 
+test('AI 根据当前资源短缺优先建设对应经济建筑',()=>{
+  const nextJob=(food,ore)=>{
+    const g=new Game('balanced');g.visible[1].fill(1);g.aiFood=food;g.aiOre=ore;
+    const own=g.buildings.filter(b=>b.team===1&&b.hp>0),base=own.find(b=>b.primary);
+    return g.ai.planBuilding(g,own,g.units.filter(u=>u.team===1),base);
+  };
+  assert.equal(nextJob(50,1000).type,'factory','食物储备明显不足时应先建食物厂');
+  assert.equal(nextJob(1000,50).type,'mine','矿产储备明显不足时应先建采矿场');
+});
+
 test('AI 建筑规划覆盖敌方半场四组资源，并为每组配置哨塔',()=>{
   const g=new Game('balanced');g.visible[1].fill(1);g.units=[];
   for(let i=0;i<20;i++){

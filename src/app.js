@@ -9,6 +9,7 @@ const MACHINE_TRAINABLE_TYPES=['armoredCar','steamWalker'];
 const TRAINABLE_TYPES=[...BASE_TRAINABLE_TYPES,...MACHINE_TRAINABLE_TYPES];
 const BUILDING_TYPES=['base','mine','tower','factory','machineFactory'];
 const UNIT_ICONS={shield:'🛡',ironShield:'🛡️',archer:'🏹',crossbow:'🎯',armoredCar:'',steamWalker:'',wilddog:'🐕',pigeon:'🕊'};
+const isOffensiveMovableUnit=u=>u.team===0&&u.hp>0&&u.type!=='pigeon'&&STATS[u.type]?.movable===true&&STATS[u.type].damage>0;
 const productionType=(type,technologies)=>type==='shield'&&technologies?.compositeShield?.status==='complete'?'ironShield':type==='archer'&&technologies?.precisionBolts?.status==='complete'?'crossbow':type;
 const params=new URLSearchParams(location.search),observer=params.has('observe');
 const session=params.get('session')||crypto.randomUUID();
@@ -190,6 +191,14 @@ window.addEventListener('keydown',e=>{
     return;
   }
   if(key===' '){e.preventDefault();if(!e.repeat)togglePause();return;}
+  if(key==='f2'){
+    e.preventDefault();
+    if(observer||e.repeat)return;
+    closeBuild();lastUnitClick=null;
+    selected=new Set(game.units.filter(isOffensiveMovableUnit).map(u=>u.id));
+    toast(selected.size?`已选择全部进攻单位 · ${selected.size} 人`:'没有可选择的进攻单位');
+    updateHud();return;
+  }
   if(key==='escape'){closeBuild();drag=null;updateHud();}
   if(observer||e.repeat)return;
   if(buildMenu&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&['c','r','q','f','m'].includes(key)){

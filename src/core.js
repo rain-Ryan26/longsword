@@ -97,13 +97,13 @@ export class Game{
     }
   }
   addBuilding(type,team,x,y){const b={id:this.nextId++,type,team,x,y,hp:STATS[type].hp,maxHp:STATS[type].hp,building:true,revealUntil:0,cooldown:0};this.buildings.push(b);return b;}
-  addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],waypoints:[],allowMountains:false,goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0,flying:!!STATS[type].air};if(u.flying&&(u.x<5||u.x>this.map.width-5||u.y<5||u.y>this.map.height-5))u.facing=Math.atan2(this.map.height/2-u.y,this.map.width/2-u.x);this.units.push(u);return u;}
+  addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],waypoints:[],allowMountains:false,allowForests:false,goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0,flying:!!STATS[type].air};if(u.flying&&(u.x<5||u.x>this.map.width-5||u.y<5||u.y>this.map.height-5))u.facing=Math.atan2(this.map.height/2-u.y,this.map.width/2-u.x);this.units.push(u);return u;}
   entities(){return [...this.units,...this.buildings].filter(e=>e.hp>0);}
   canSee(team,e){return e.team===team||!!this.visible[team][this.cellIndex(e.x,e.y)];}
   detectionRange(e){return this.isFlying(e)||!('visionGround' in STATS[e.type])?STATS[e.type].vision:STATS[e.type].visionGround;}
   movementSpeed(u){if(STATS[u.type].air)return this.isFlying(u)?STATS[u.type].speed:0;return STATS[u.type].speed*(MOVEMENT_MULTIPLIERS[this.map.terrain[this.cellIndex(u.x,u.y)]]??1);}
-  // 是否应避让慢速地形（山地、森林）：非飞行、未开启穿越，且脚下在平地上（便于从慢速地形中走出）
-  avoidsMountains(u){return !this.isFlying(u)&&!u.allowMountains&&this.map.terrain[this.cellIndex(u.x,u.y)]===0;}
+  // 分别返回是否避让山地、森林；BOT 默认可穿森林，单位在慢速地形中时先允许走出。
+  terrainAvoidance(u){return this.isFlying(u)||this.map.terrain[this.cellIndex(u.x,u.y)]!==0?[false,false]:[!u.allowMountains,!(u.allowForests||u.team===1)];}
   isFlying(u){return !!STATS[u.type].air&&u.flying!==false;}
   canEngage(u,e){if(STATS[u.type].airOnly)return this.isFlying(u)&&this.isFlying(e);return !this.isFlying(e)||this.isFlying(u)||!!STATS[u.type].antiAir;}
   toggleFlight(ids,point){
@@ -121,16 +121,16 @@ export class Game{
   attackDamage(u,e){const s=STATS[u.type];return this.isFlying(e)&&s.antiAir?s.damage/2:s.damage;}
   pathFor(u,end){
     if(this.isFlying(u))return [];
-    const avoid=this.avoidsMountains(u);
+    const [avoidMountains,avoidForests]=this.terrainAvoidance(u);
     const buildings=u.leavingId!=null?this.buildings.filter(b=>b.id!==u.leavingId):this.buildings;
-    if(avoid&&end===u.goal){const p=nearestFree(this.map,buildings,end.x,end.y,true);if(p){u.goal=p;end=p;}}
-    return findPath(this.map,buildings,u,end,avoid);
+    if((avoidMountains||avoidForests)&&end===u.goal){const p=nearestFree(this.map,buildings,end.x,end.y,avoidMountains,avoidForests);if(p){u.goal=p;end=p;}}
+    return findPath(this.map,buildings,u,end,avoidMountains,avoidForests);
   }
   updateVision(){
     this.visionVersion++;
     for(const v of this.visible)v.fill(0);
-    // 森林格对飞行侦察（信鸽）只累加为已探索：能看见森林地形，但看不到藏在其中的敌人；其余单位正常照亮。
-    const circle=(team,x,y,r,pigeonOnly=false)=>{for(let yy=Math.max(0,Math.floor(y-r));yy<=Math.min(this.map.height-1,Math.ceil(y+r));yy++)for(let xx=Math.max(0,Math.floor(x-r));xx<=Math.min(this.map.width-1,Math.ceil(x+r));xx++)if((xx+.5-x)**2+(yy+.5-y)**2<=r*r){const idx=yy*this.map.width+xx;if(pigeonOnly&&this.map.terrain[idx]===2)this.explored[team][idx]=1;else this.visible[team][idx]=1;}};
+    // 森林格对飞行侦察只累加为已探索；飞行单位正下方所在格例外，仍然可见。
+    const circle=(team,x,y,r,airScout=false)=>{const underX=Math.floor(x),underY=Math.floor(y);for(let yy=Math.max(0,Math.floor(y-r));yy<=Math.min(this.map.height-1,Math.ceil(y+r));yy++)for(let xx=Math.max(0,Math.floor(x-r));xx<=Math.min(this.map.width-1,Math.ceil(x+r));xx++)if((xx+.5-x)**2+(yy+.5-y)**2<=r*r){const idx=yy*this.map.width+xx;if(airScout&&this.map.terrain[idx]===2&&(xx!==underX||yy!==underY))this.explored[team][idx]=1;else this.visible[team][idx]=1;}};
     // 陆地视野按视线消耗：以侦测距离为预算，每进入一格消耗 1/侦测系数（森林贵、山地省）
     const sight=(team,x,y,budget)=>{
       const vis=this.visible[team],terrain=this.map.terrain;
@@ -174,8 +174,9 @@ export class Game{
     selected.forEach((u,i)=>{
       if(STATS[u.type].air&&!this.isFlying(u)&&(kind==='move'||kind==='attack')){u.flying=true;if(u.x<5||u.x>this.map.width-5||u.y<5||u.y>this.map.height-5)u.facing=Math.atan2(this.map.height/2-u.y,this.map.width/2-u.x);}
       u.buildingId=null;u.landing=null;u.orbit=null;u.landingEscape=false;
-      if(!append)u.allowMountains=allowMountains&&kind==='move';
-      const p=kind==='stop'?null:this.isFlying(u)?{x:point.x,y:point.y}:nearestFree(this.map,this.buildings,point.x+(i%cols-(cols-1)/2)*1.2,point.y+(Math.floor(i/cols)-(Math.ceil(selected.length/cols)-1)/2)*1.2,this.avoidsMountains(u));
+      if(!append){u.allowMountains=kind!=='stop'&&allowMountains;u.allowForests=kind!=='stop'&&allowMountains;}
+      const avoidance=this.terrainAvoidance(u);
+      const p=kind==='stop'?null:this.isFlying(u)?{x:point.x,y:point.y}:nearestFree(this.map,this.buildings,point.x+(i%cols-(cols-1)/2)*1.2,point.y+(Math.floor(i/cols)-(Math.ceil(selected.length/cols)-1)/2)*1.2,...avoidance);
       if(append&&kind==='move'&&u.goal&&p){
         u.waypoints.push(p);u.order='move';u.holdFire=false;u.targetId=null;
         u.path=this.pathFor(u,u.goal);u.repath=1.5;
@@ -222,8 +223,8 @@ export class Game{
       this.dispatchBuilders(b,assignments);
     }else{
       const list=[...this.buildings,site];
-      const dests=evictees.map(u=>{u.allowMountains=true;return {u,target:this.evictTarget(site,u,list)};});
-      if(dests.some(d=>!d.target)){for(const d of dests)d.u.allowMountains=false;return '请先移开占地内的部队';}
+      const dests=evictees.map(u=>{u.allowMountains=true;u.allowForests=true;return {u,target:this.evictTarget(site,u,list)};});
+      if(dests.some(d=>!d.target)){for(const d of dests){d.u.allowMountains=false;d.u.allowForests=false;}return '请先移开占地内的部队';}
       this[team===0?'food':'aiFood']-=s.food;this[team===0?'ore':'aiOre']-=s.ore;const b=this.addBuilding(type,team,p.x,p.y);
       b.constructionRemaining=s.buildTime||0;b.constructionPending=true;b.awaitingEviction=true;b.activeBuilders=0;b.builderIds=ids;
       for(const {u,target} of dests){u.buildingId=null;u.waypoints=[];u.targetId=null;u.holdFire=false;u.leavingId=b.id;u.order='move';u.goal=target;u.path=this.pathFor(u,target);u.repath=1.5;}
@@ -232,7 +233,7 @@ export class Game{
   }
   evictTarget(b,u,list=this.buildings){
     const r=STATS[b.type].halfSize||2,dx=u.x-b.x,dy=u.y-b.y,d=Math.hypot(dx,dy);
-    return nearestFree(this.map,list,b.x+(d>1e-6?dx/d:1)*(r+2),b.y+(d>1e-6?dy/d:0)*(r+2),this.avoidsMountains(u));
+    return nearestFree(this.map,list,b.x+(d>1e-6?dx/d:1)*(r+2),b.y+(d>1e-6?dy/d:0)*(r+2),...this.terrainAvoidance(u));
   }
   stillLeaving(u){
     if(u.leavingId==null)return false;
@@ -264,7 +265,7 @@ export class Game{
     return result;
   }
   dispatchBuilders(b,assignments){
-    for(const {u,p,path} of assignments){u.buildingId=b.id;u.order='build';u.goal=p;u.path=path;u.waypoints=[];u.targetId=null;u.holdFire=false;u.allowMountains=true;u.repath=1;}
+    for(const {u,p,path} of assignments){u.buildingId=b.id;u.order='build';u.goal=p;u.path=path;u.waypoints=[];u.targetId=null;u.holdFire=false;u.allowMountains=true;u.allowForests=true;u.repath=1;}
   }
   assistBuild(ids,id){
     if(this.result)return '战局已结束';
@@ -274,8 +275,8 @@ export class Game{
     if(!assignments.length)return '施工人员已满或选中部队无法到达';
     this.dispatchBuilders(b,assignments);this.revision++;return null;
   }
-  releaseBuilder(u){u.buildingId=null;u.order='idle';u.goal=null;u.path=[];u.waypoints=[];u.allowMountains=false;u.holdFire=false;}
-  releaseBuilders(b){for(const u of this.units){if(u.buildingId===b.id)this.releaseBuilder(u);else if(u.leavingId===b.id){u.leavingId=null;u.allowMountains=false;}}}
+  releaseBuilder(u){u.buildingId=null;u.order='idle';u.goal=null;u.path=[];u.waypoints=[];u.allowMountains=false;u.allowForests=false;u.holdFire=false;}
+  releaseBuilders(b){for(const u of this.units){if(u.buildingId===b.id)this.releaseBuilder(u);else if(u.leavingId===b.id){u.leavingId=null;u.allowMountains=false;u.allowForests=false;}}}
   demolish(id){
     if(this.result)return '战局已结束';
     const b=this.buildings.find(b=>b.id===id&&b.team===0&&b.hp>0);
@@ -388,13 +389,13 @@ export class Game{
             u.leavingId=b.id;
             if(u.order!=='move'||!u.path.length){
               const target=this.evictTarget(b,u);
-              if(target){u.buildingId=null;u.waypoints=[];u.targetId=null;u.holdFire=false;u.allowMountains=true;u.order='move';u.goal=target;u.path=this.pathFor(u,target);u.repath=1.5;}
+              if(target){u.buildingId=null;u.waypoints=[];u.targetId=null;u.holdFire=false;u.allowMountains=true;u.allowForests=true;u.order='move';u.goal=target;u.path=this.pathFor(u,target);u.repath=1.5;}
             }
           }
           continue;
         }
         b.awaitingEviction=false;
-        for(const u of this.units)if(u.leavingId===b.id){u.leavingId=null;u.allowMountains=false;}
+        for(const u of this.units)if(u.leavingId===b.id){u.leavingId=null;u.allowMountains=false;u.allowForests=false;}
         const assignments=this.builderAssignments(b.builderIds,b);
         if(assignments.length)this.dispatchBuilders(b,assignments);
         continue;
@@ -461,7 +462,7 @@ export class Game{
         else if(u.role==='patrol'){
           const p=this.map.patrol[u.patrolIndex];if(distance(u,p)<2)u.patrolIndex=(u.patrolIndex+1)%this.map.patrol.length;
           if(!u.path.length||u.repath<=0){u.path=this.pathFor(u,this.map.patrol[u.patrolIndex]);u.repath=2;}
-        }else if(u.goal){if(distance(u,u.goal)<.8&&!this.stillLeaving(u)){u.goal=u.waypoints.shift()||null;u.path=u.goal?this.pathFor(u,u.goal):[];u.order=u.goal?'move':'idle';if(!u.goal)u.allowMountains=false;u.repath=1.5;}else if(!u.path.length||u.repath<=0){u.path=this.pathFor(u,u.goal);u.repath=1.5;}}
+        }else if(u.goal){if(distance(u,u.goal)<.8&&!this.stillLeaving(u)){u.goal=u.waypoints.shift()||null;u.path=u.goal?this.pathFor(u,u.goal):[];u.order=u.goal?'move':'idle';if(!u.goal){u.allowMountains=false;u.allowForests=false;}u.repath=1.5;}else if(!u.path.length||u.repath<=0){u.path=this.pathFor(u,u.goal);u.repath=1.5;}}
         else if(u.targetId===null&&u.order==='idle')u.path=[];
       }
       this.move(u,this.movementSpeed(u)*dt);
@@ -542,8 +543,8 @@ export class Game{
     if(STATS[u.type].air&&!this.isFlying(u))return;
     const buildings=u.leavingId!=null?this.buildings.filter(b=>b.id!==u.leavingId):this.buildings;
     const wasInSlow=this.map.terrain[this.cellIndex(u.x,u.y)]!==0;
-    while(u.path.length&&amount>0){const p=u.path[0],d=distance(u,p);if(!walkable(this.map,buildings,Math.floor(p.x),Math.floor(p.y),this.avoidsMountains(u))){u.path=[];u.repath=0;return;}u.facing=Math.atan2(p.y-u.y,p.x-u.x);if(d<=amount){u.x=p.x;u.y=p.y;u.path.shift();amount-=d;}else{u.x+=(p.x-u.x)/d*amount;u.y+=(p.y-u.y)/d*amount;amount=0;}}
-    if(wasInSlow&&this.avoidsMountains(u)){u.path=[];u.repath=0;}
+    while(u.path.length&&amount>0){const p=u.path[0],d=distance(u,p);if(!walkable(this.map,buildings,Math.floor(p.x),Math.floor(p.y),...this.terrainAvoidance(u))){u.path=[];u.repath=0;return;}u.facing=Math.atan2(p.y-u.y,p.x-u.x);if(d<=amount){u.x=p.x;u.y=p.y;u.path.shift();amount-=d;}else{u.x+=(p.x-u.x)/d*amount;u.y+=(p.y-u.y)/d*amount;amount=0;}}
+    const avoidance=this.terrainAvoidance(u);if(wasInSlow&&(avoidance[0]||avoidance[1])){u.path=[];u.repath=0;}
   }
   separate(dt){
     // 待机（无目标、无路径、未受令）的单位彼此保持更宽松的默认间距，行动或交战时收缩为轻微分离
@@ -553,7 +554,7 @@ export class Game{
       const d=distance(a,b),collisionGap=(STATS[a.type].collisionRadius||.425)+(STATS[b.type].collisionRadius||.425),gap=atRest(a)&&atRest(b)?Math.max(1.6,collisionGap):collisionGap;
       if(d>=gap)continue;
       const dx=d>.001?(a.x-b.x)/d:1,dy=d>.001?(a.y-b.y)/d:0,k=Math.min((gap-d)*.5,dt*1.5);
-      for(const [u,sign]of [[a,1],[b,-1]]){if(STATS[u.type].air)continue;const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),this.avoidsMountains(u))){u.x=x;u.y=y;}}
+      for(const [u,sign]of [[a,1],[b,-1]]){if(STATS[u.type].air)continue;const x=u.x+dx*k*sign,y=u.y+dy*k*sign;if(walkable(this.map,this.buildings,Math.floor(x),Math.floor(y),...this.terrainAvoidance(u))){u.x=x;u.y=y;}}
     }
   }
   snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,level:this.level,defense:this.defense?{...this.defense,sizes:[...this.defense.sizes]}:null,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,aiFood:this.aiFood,aiOre:this.aiOre,popCap:this.popCap(),queue:this.queue,technologies:this.technologies,result:this.result,visible:this.visible,explored:this.explored,ghosts:[0,1].map(t=>({buildings:[...this.ghosts[t].buildings.values()],units:[...this.ghosts[t].units.values()]}))};}
