@@ -11,15 +11,15 @@ test('基地、采矿场和食物厂采用当前建造成本',()=>{
   );
 });
 test('铁盾兵和强弩兵继承基础兵种数值并应用强化与矿产加价',()=>{
-  assert.deepEqual({...STATS.ironShield,name:null,armor:null,damage:null,ore:null},{...STATS.shield,name:null,armor:null,damage:null,ore:null});
-  assert.equal(STATS.shield.armor,4);assert.equal(STATS.ironShield.armor,7);assert.equal(STATS.ironShield.damage,STATS.shield.damage+1);assert.equal(STATS.ironShield.ore,STATS.shield.ore+20);
-  assert.deepEqual({...STATS.crossbow,name:null,damage:null,ore:null},{...STATS.archer,name:null,damage:null,ore:null});
+  assert.deepEqual({...STATS.ironShield,name:null,armor:null,damage:null,ore:null,hp:null},{...STATS.shield,name:null,armor:null,damage:null,ore:null,hp:null});
+  assert.equal(STATS.shield.armor,4);assert.equal(STATS.ironShield.armor,7);assert.equal(STATS.ironShield.damage,STATS.shield.damage+1);assert.equal(STATS.ironShield.ore,STATS.shield.ore+10);
+  assert.deepEqual({...STATS.crossbow,name:null,damage:null,ore:null,food:null},{...STATS.archer,name:null,damage:null,ore:null,food:null});
   assert.equal(STATS.crossbow.damage,STATS.archer.damage+7);assert.equal(STATS.crossbow.ore,STATS.archer.ore+20);
 });
 test('基地可训练铁盾兵和强弩兵，强弩使用远程弹道且铁盾按 7 点护甲减伤',()=>{
   const g=new Game();g.units=[];g.food=g.ore=1000;
   assert.equal(g.train('ironShield'),null);assert.equal(g.train('crossbow'),null);
-  assert.equal(g.food,900);assert.equal(g.ore,940);advance(g,8.1);
+  assert.equal(g.food,900);assert.equal(g.ore,950);advance(g,10.1);
   assert.equal(g.units.filter(u=>u.type==='ironShield').length,1);assert.equal(g.units.filter(u=>u.type==='crossbow').length,1);
   g.units=[];const attacker=g.addUnit('crossbow',0,30,30),target=g.addUnit('ironShield',1,36,30);target.holdFire=true;g.updateVision();
   const hp=target.hp;g.step(.05);assert.equal(g.projectiles.length,1);assert.deepEqual(g.consumeAudioEvents(),[]);assert.equal(target.hp,hp);advance(g,.4);assert.equal(target.hp,hp-15);
@@ -28,10 +28,10 @@ test('基地可训练铁盾兵和强弩兵，强弩使用远程弹道且铁盾�
 test('机械数值、训练费用与蒸汽步行机炮击符合设计',()=>{
   assert.equal(STATS.armoredCar.speed,STATS.wilddog.speed-.3);assert.equal(STATS.armoredCar.cooldown,STATS.crossbow.cooldown/2);
   assert.equal(STATS.armoredCar.damage,STATS.crossbow.damage);assert.equal(STATS.armoredCar.range,STATS.crossbow.range);
-  assert.deepEqual([STATS.armoredCar.food,STATS.armoredCar.ore,STATS.armoredCar.armor,STATS.armoredCar.hp],[150,150,10,250]);
-  assert.deepEqual([STATS.steamWalker.food,STATS.steamWalker.ore,STATS.steamWalker.armor,STATS.steamWalker.hp],[300,500,20,400]);
+  assert.deepEqual([STATS.armoredCar.food,STATS.armoredCar.ore,STATS.armoredCar.armor,STATS.armoredCar.hp],[150,150,10,200]);
+  assert.deepEqual([STATS.steamWalker.food,STATS.steamWalker.ore,STATS.steamWalker.armor,STATS.steamWalker.hp],[300,500,20,300]);
   assert.equal(STATS.steamWalker.damage,70);assert.equal(STATS.steamWalker.cooldown,1);assert.ok(Math.abs(STATS.steamWalker.speed-(STATS.shield.speed-.2))<1e-9);
-  assert.equal(STATS.steamWalker.vision,STATS.archer.vision+3);assert.equal(STATS.steamWalker.range,STATS.archer.range+3);
+  assert.equal(STATS.steamWalker.vision,13);assert.equal(STATS.steamWalker.range,STATS.archer.range+3);
   assert.equal(STATS.steamWalker.splashDamage,20);assert.equal(STATS.steamWalker.splashRadius,2);assert.equal(STATS.steamWalker.projectileKind,'cannonball');
   assert.equal(STATS.archer.audioEvent,undefined);assert.equal(STATS.crossbow.audioEvent,undefined);assert.equal(STATS.armoredCar.audioEvent,undefined);assert.equal(STATS.steamWalker.audioEvent,'cannonFire');
   const g=new Game();g.units=[];g.food=g.ore=1000;
@@ -72,20 +72,20 @@ test('弓箭延迟伤害、护甲扣减和射击暴露',()=>{
   assert.equal(b.hp,hp-Math.max(1,STATS.archer.damage-STATS.shield.armor));
 });
 test('停火不使正常视野内单位隐身，射击暴露过期',()=>{const g=new Game();g.units=[];g.buildings=[];g.map.terrain.fill(0);const a=g.addUnit('shield',0,20,20),b=g.addUnit('shield',1,40,20);a.holdFire=true;g.updateVision();assert.equal(g.canSee(1,a),false);a.revealUntil=2;g.updateVision();assert.equal(g.canSee(1,a),true);g.time=3;g.updateVision();assert.equal(g.canSee(1,a),false);b.x=24;g.updateVision();assert.equal(g.canSee(1,a),true);});
-test('训练扣费、出兵与人口上限',()=>{const g=new Game();assert.equal(g.train('shield'),null);assert.equal(g.food,950);assert.equal(g.ore,990);advance(g,4.1);assert.equal(g.units.filter(u=>u.team===0).length,15);assert.equal(g.queue.length,0);g.food=0;assert.match(g.train('archer'),/资源不足/);g.food=10000;g.ore=10000;while(g.units.filter(u=>u.team===0).length<40)g.addUnit('shield',0,18,36);assert.match(g.train('shield'),/人口/);});
+test('训练扣费、出兵与人口上限',()=>{const g=new Game();assert.equal(g.train('shield'),null);assert.equal(g.food,950);assert.equal(g.ore,990);advance(g,5.1);assert.equal(g.units.filter(u=>u.team===0).length,15);assert.equal(g.queue.length,0);g.food=0;assert.match(g.train('archer'),/资源不足/);g.food=10000;g.ore=10000;while(g.units.filter(u=>u.team===0).length<40)g.addUnit('shield',0,18,36);assert.match(g.train('shield'),/人口/);});
 test('点击队列对应的取消逻辑会移除指定单位并全额退款',()=>{
   const g=new Game(),base=g.buildings.find(b=>b.team===0&&b.type==='base');
   assert.equal(g.train('shield',base.id),null);assert.equal(g.train('archer',base.id),null);advance(g,1);
   assert.equal(g.cancelTraining(base.id,0),null);
   assert.deepEqual(g.queue.filter(q=>q.baseId===base.id).map(q=>q.type),['archer']);
-  assert.equal(g.food,950);assert.equal(g.ore,990);
+  assert.equal(g.food,940);assert.equal(g.ore,990);
   assert.match(g.cancelTraining(base.id,8),/不存在/);
 });
 test('基地集结点独立保存，新单位出兵后自动前往',()=>{
   const g=new Game(),base=g.buildings.find(b=>b.team===0&&b.type==='base'),before=new Set(g.units.map(u=>u.id));
   assert.equal(g.setRallyPoint(base.id,{x:35,y:32}),null);
   assert.deepEqual(base.rallyPoint,{x:35,y:32});
-  assert.equal(g.train('shield',base.id),null);advance(g,4.1);
+  assert.equal(g.train('shield',base.id),null);advance(g,5.1);
   const unit=g.units.find(u=>!before.has(u.id));
   assert.equal(unit.order,'move');assert.ok(unit.goal);assert.ok(distance(unit.goal,base.rallyPoint)<1);
   assert.match(g.setRallyPoint(base.id,{x:-1,y:2}),/地图范围/);
@@ -135,10 +135,10 @@ test('侦测按视线消耗：观察者地形不改预算，平地半径、森�
     assert.equal(g.visible[team][20*W+21],1);
     assert.equal(g.visible[team][20*W+22],1);
     assert.equal(g.visible[team][20*W+24],0);
-    // 山地（系数 1.2，每格约消耗 0.83）：穿透延长到约 11 格
+    // 山地（系数 1.2，每格约消耗 0.83）：穿透延长到约 10 格
     g.map.terrain.fill(1);g.updateVision();
-    assert.equal(g.visible[team][20*W+31],1);
-    assert.equal(g.visible[team][20*W+33],0);
+    assert.equal(g.visible[team][20*W+30],1);
+    assert.equal(g.visible[team][20*W+31],0);
   }
 });
 test('森林缩短视线：看不清就不索敌，恢复平地后可索敌',()=>{
@@ -264,7 +264,7 @@ test('强制穿山随追加路线保留，普通命令和停止清除',()=>{
 
 
 test('采矿场选址、扣费、产矿、拆除与矿点复用',()=>{
-  const g=new Game(),ids=[g.units.find(u=>u.team===0).id],node=g.map.resources[0];
+  const g=new Game();g.addUnit('shield',0,24,36);g.updateVision();const ids=[g.units.find(u=>u.team===0).id],node=g.map.resources[0];
   assert.ok(node.x<W/2);g.food=100;g.ore=200;
   assert.match(g.build(ids,'mine',{x:30,y:30}),/矿产资源点/);
   assert.equal(g.food,100);assert.equal(g.ore,200);
