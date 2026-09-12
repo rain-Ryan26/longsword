@@ -16,7 +16,7 @@ export function productionType(type,technologies,team=0){
 
 export function populationCap(state,team=0){
   if(state.level==='attack'||state.level==='demo')return 200;
-  if(state.level==='defend')return 100;
+  if(state.level==='defend')return 200;
   return state.buildings.reduce((total,b)=>total+(b.team===team&&b.hp>0&&!b.constructionPending?(STATS[b.type].pop||0):0),0);
 }
 

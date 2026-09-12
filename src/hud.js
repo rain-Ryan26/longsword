@@ -24,8 +24,7 @@ function update({state,selected,view,paused,speed,level,interaction}){
   const botView=view===2;$('bot-resources').hidden=!botView;if(botView){$('bot-food').textContent=Math.floor(state.aiFood);$('bot-ore').textContent=Math.floor(state.aiOre);}
   const seconds=Math.floor(state.time);$('clock').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
   $('pause').textContent=paused?'继续':'暂停';$('pause').classList.toggle('active',paused);$('speed').textContent=speed+'×';
-  const enemyAlive=state.buildings.filter(b=>b.team===1&&b.hp>0).length,enemyUnits=state.units.filter(u=>u.team===1&&u.hp>0).length,lvl=state.level||level;
-  $('objective').textContent=(lvl==='attack'||lvl==='balanced')?`敌方建筑 ${enemyAlive} · 敌军 ${enemyUnits} 人`:lvl==='defend'?`第 ${state.defense.wave} / 2 波已出动 · 敌军 ${enemyUnits} 人 · 两波 ${state.defense.sizes.join('+')} 人 · 我方建筑 ${state.buildings.filter(b=>b.team===0&&b.hp>0).length}${state.defense.nextWaveAt!==null?` · ${state.defense.wave===0?'准备':'休整'} ${Math.max(0,Math.ceil(state.defense.nextWaveAt-state.time))} 秒`:''}`:`敌方营地 ${enemyAlive} / 2`;
+  $('launch-attack').hidden=observer||state.level!=='defend'||state.defense.wave!==0;
   const units=state.units.filter(u=>selected.has(u.id)),counts={};for(const u of units)counts[STATS[u.type].name]=(counts[STATS[u.type].name]||0)+1;
   const label=Object.entries(counts).map(([name,count])=>`${count} ${name}`).join(' · ');
   $('selection-title').textContent=observer?'观察模式':units.length?'已选择部队':'未选择部队';$('selection-count').textContent=units.length;

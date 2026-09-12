@@ -590,41 +590,38 @@ test('进攻关卡：一处受袭从其他防区抽调至 24 人，威胁解除�
   assert.ok(response.every(u=>u.role==='guard'&&u.order==='move'));
 });
 
-for(const [randomValue,count] of [[.1,40],[.9,60]]){
-  test(`防守 ${count} 人：等量开局、两波、准备和休整计时、保留建筑胜利`,()=>{
-    const random=Math.random;let g;
-    try{Math.random=()=>randomValue;g=new Game('defend');}finally{Math.random=random;}
-    assert.equal(g.food,5000);assert.equal(g.ore,5000);assert.equal(g.aiFood,2000);assert.equal(g.aiOre,2000);
-    assert.deepEqual(g.defense.sizes,[count,count/2]);
-    assert.equal(g.buildings.filter(b=>b.team===1).length,0);
-    for(const team of [0,1]){
-      const army=g.units.filter(u=>u.team===team);
-      assert.equal(army.length,count);
-      assert.equal(army.filter(u=>u.type==='shield').length,Math.round(count*1.2/2.2));
-      assert.ok(army.every(u=>['shield','archer'].includes(u.type)));
-    }
-    g.time=119.9;g.step(.05);assert.equal(g.defense.wave,0);
-    assert.ok(g.units.filter(u=>u.team===1).every(u=>u.role==='guard'));
-    g.time=120;g.step(.05);assert.equal(g.defense.wave,1);
-    assert.ok(g.units.filter(u=>u.team===1).every(u=>u.order==='attack'));
-    const base=g.buildings.find(b=>b.team===0&&b.primary);
-    g.damage(base,99999);g.step(.05);assert.equal(g.result,null);
-    assert.notEqual(g.ai.targetId,base.id,'主基地毁后转攻其他建筑');
-    for(const u of g.units)if(u.team===1)u.hp=0;
-    g.step(.05);assert.equal(g.result,null);
-    const next=g.defense.nextWaveAt;assert.ok(next>g.time);
-    assert.equal(g.snapshot().defense.nextWaveAt,next);
-    g.time=next-.1;g.step(.05);assert.equal(g.defense.wave,1);
-    g.time=next;g.step(.05);assert.equal(g.defense.wave,2);
-    const wave=g.units.filter(u=>u.team===1);
-    assert.equal(wave.length,count/2);
-    assert.equal(wave.filter(u=>u.type==='shield').length,Math.round(count/2*1.2/2.2));
-    assert.ok(wave.every(u=>u.role==='attack'&&u.order==='attack'));
-    assert.equal(g.aiQueue.length,0);
-    for(const u of wave)u.hp=0;
-    g.step(.05);assert.equal(g.result,'victory');
-  });
-}
+test(`防守：固定兵力开局、两波、准备和休整计时、保留建筑胜利`,()=>{
+  const g=new Game('defend');
+  assert.equal(g.food,5000);assert.equal(g.ore,5000);assert.equal(g.aiFood,2000);assert.equal(g.aiOre,2000);
+  assert.deepEqual(g.defense.sizes,[{shield:70,archer:70},{shield:35,archer:35}]);
+  assert.equal(g.buildings.filter(b=>b.team===1).length,0);
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='shield').length,60);
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='archer').length,60);
+  assert.equal(g.units.filter(u=>u.team===1&&u.type==='shield').length,70);
+  assert.equal(g.units.filter(u=>u.team===1&&u.type==='archer').length,70);
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='armoredCar').length,4);
+  assert.equal(g.units.filter(u=>u.team===0&&u.type==='steamWalker').length,2);
+  g.time=119.9;g.step(.05);assert.equal(g.defense.wave,0);
+  assert.ok(g.units.filter(u=>u.team===1).every(u=>u.role==='guard'));
+  g.time=120;g.step(.05);assert.equal(g.defense.wave,1);
+  assert.ok(g.units.filter(u=>u.team===1).every(u=>u.order==='attack'));
+  const base=g.buildings.find(b=>b.team===0&&b.primary);
+  g.damage(base,99999);g.step(.05);assert.equal(g.result,null);
+  assert.notEqual(g.ai.targetId,base.id,'主基地毁后转攻其他建筑');
+  for(const u of g.units)if(u.team===1)u.hp=0;
+  g.step(.05);assert.equal(g.result,null);
+  const next=g.defense.nextWaveAt;assert.ok(next>g.time);
+  assert.equal(g.snapshot().defense.nextWaveAt,next);
+  g.time=next-.1;g.step(.05);assert.equal(g.defense.wave,1);
+  g.time=next;g.step(.05);assert.equal(g.defense.wave,2);
+  const wave=g.units.filter(u=>u.team===1);
+  assert.equal(wave.filter(u=>u.type==='shield').length,35);
+  assert.equal(wave.filter(u=>u.type==='archer').length,35);
+  assert.ok(wave.every(u=>u.role==='attack'&&u.order==='attack'));
+  assert.equal(g.aiQueue.length,0);
+  for(const u of wave)u.hp=0;
+  g.step(.05);assert.equal(g.result,'victory');
+});
 
 test('防守：提前清场仍保留完整准备期和休整期',()=>{
   const g=new Game('defend');
@@ -669,10 +666,10 @@ test('防守重开重置波次，切换关卡清除波次状态',()=>{
   Object.assign(g,new Game('demo'));assert.equal(g.snapshot().defense,null);
 });
 
-test('进攻固定 200、防守固定 100 人口，双方训练计入排队人数',()=>{
+test('进攻与防守固定 200 人口，双方训练计入排队人数',()=>{
   for(const level of ['attack','defend']){
     const g=new Game(level);
-    const cap=level==='attack'?200:100;
+    const cap=200;
     assert.equal(g.snapshot().popCap,cap);assert.equal(g.popCap(1),cap);
     const extra=g.addBuilding('base',0,10,10);
     assert.equal(g.popCap(),cap);extra.hp=0;assert.equal(g.popCap(),cap);

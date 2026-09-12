@@ -5,7 +5,7 @@ export const LEVELS={
   demo:{title:'夺下双营地',desc:'侦察东部资源点，摧毁两座敌方营地。',toast:'框选蓝色部队，按 A 后点击目的地。'},
   balanced:{title:'均衡对抗',desc:'扩张经济、集结部队，摧毁敌方全部建筑。',toast:'双方各 6 盾兵、6 弓箭兵；绿色食物点上的食物厂产量翻倍。'},
   attack:{title:'突破五塔联防',desc:`率领 ${ATTACK_SETUP.playerPerType} 盾兵、${ATTACK_SETUP.playerPerType} 弓箭兵，摧毁敌方全部建筑。`,toast:`敌军有 ${ATTACK_SETUP.defenderShield*ATTACK_SETUP.sectorY.length} 盾、${ATTACK_SETUP.defenderArcher*ATTACK_SETUP.sectorY.length} 弓且不能补员；攻击一处防区会引来其他守军增援。`},
-  defend:{title:'抵御两波进攻',desc:'准备 120 秒，敌军 40+20 或 60+30 人。我方与第一波等量，保留建筑并全灭两波敌军。',toast:'趁准备期布防；第一波全灭后休整 30 秒迎接第二波。'}
+  defend:{title:'抵御两波进攻',desc:'准备 120 秒，敌军首波 70 盾兵 + 70 弓兵，第二波 35 盾 + 35 弓。我方 60 盾 + 60 弓 + 2 蒸汽步行机 + 4 装甲车。保留建筑并全灭两波敌军。',toast:'趁准备期布防；第一波全灭后休整 30 秒迎接第二波。'}
 };
 
 export function createLevelMap(level){
@@ -38,14 +38,15 @@ export function setupLevel(game){
       return;
     }
     if(game.level==='defend'){
-      const firstWave=Math.random()<.5?40:60;
-      game.defense={sizes:[firstWave,firstWave/2],wave:0,nextWaveAt:120};
+      game.defense={sizes:[{shield:70,archer:70},{shield:35,archer:35}],wave:0,nextWaveAt:120};
       game.addBuilding('base',0,12,32).primary=true;
       game.addBuilding('machineFactory',0,6,32);
       game.addBuilding('mine',0,22.5,40.5);
       game.addBuilding('factory',0,16.5,22.5);
-      game.spawnDefenseArmy(firstWave,0);
-      game.spawnDefenseArmy(firstWave,1);
+      game.spawnDefenseArmy(60,60,0);
+      game.spawnDefenseArmy(70,70,1);
+      for(let n=0;n<4;n++)game.addUnit('armoredCar',0,22+n*3,18);
+      for(let n=0;n<2;n++)game.addUnit('steamWalker',0,25+n*4,15);
       return;
     }
     // 双方经济建筑直接完工。

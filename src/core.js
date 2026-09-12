@@ -23,18 +23,20 @@ export class Game{
     this.density=new Float32Array(this.map.width*this.map.height);
     this.setupLevel();
     this.ai=level==='balanced'?new BalancedAI():level==='attack'?new DefendAI():level==='defend'?new AssaultAI():null;
+    this.playerAI=level==='balanced'?new BalancedAI(0):null;
+    this.playerAIControl=false;
     this.updateVision();
   }
   cellIndex(x,y){return Math.floor(y)*this.map.width+Math.floor(x);}
   setupLevel(){setupLevel(this);}
-  spawnDefenseArmy(count,team){
-    const shields=Math.round(count*1.2/2.2);
-    for(let n=0;n<count;n++){
-      // 每列十人，盾兵在朝向战场的一侧，弓兵在后；避开己方经济建筑。
-      const front=n<shields,index=front?n:n-shields;
-      const depth=Math.floor(index/10),x=team?(front?74+depth*2:84+depth*2):(front?30-depth*2:22-depth*2);
-      const u=this.addUnit(front?'shield':'archer',team,x,24+(index%10)*2);
-      if(team){u.home={x:u.x,y:u.y};u.role='guard';}
+  spawnDefenseArmy(shields,archers,team){
+    // 每列十人，盾兵在朝向战场的一侧，弓兵在后；避开己方经济建筑。
+    for(const [type,count,baseX] of [['shield',shields,team?74:30],['archer',archers,team?84:22]]){
+      for(let n=0;n<count;n++){
+        const depth=Math.floor(n/10),x=team?baseX+depth*2:baseX-depth*2;
+        const u=this.addUnit(type,team,x,24+(n%10)*2);
+        if(team){u.home={x:u.x,y:u.y};u.role='guard';}
+      }
     }
   }
   addBuilding(type,team,x,y){const b={id:this.nextId++,type,team,x,y,hp:STATS[type].hp,maxHp:STATS[type].hp,building:true,revealUntil:0,cooldown:0};this.buildings.push(b);return b;}
@@ -250,6 +252,7 @@ export class Game{
     producer.rallyPoint={x:point.x,y:point.y};this.revision++;return null;
   }
   aiTrain(type){return this.enqueueTraining(type,null,1);}
+  setPlayerAIControl(on){this.playerAIControl=!!on&&this.playerAI!=null;}
   foodRate(building){return foodRate(this.map,building);}
   stepTrainingQueue(queue,team,dt){
     const producers=this.buildings.filter(b=>['base','machineFactory'].includes(b.type)&&b.team===team&&b.hp>0&&!b.constructionPending);
@@ -276,6 +279,7 @@ export class Game{
     this.stepTrainingQueue(this.queue,0,dt);
     this.stepTrainingQueue(this.aiQueue,1,dt);
     if(this.ai)this.ai.update(this,dt);
+    if(this.playerAI&&this.playerAIControl)this.playerAI.update(this,dt);
     this.visionTimer-=dt;
     if(this.visionTimer<=0){this.updateVision();this.visionTimer=.15;}
     this.updateDensity();

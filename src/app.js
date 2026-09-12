@@ -18,6 +18,7 @@ const host=observer?null:new SnapshotHost(message=>channel.postMessage(message),
 const receiver=observer?new SnapshotReceiver(crypto.randomUUID()):null;
 let lastHello=-Infinity;
 const controlGroups=new Map();
+let aiControl=false;
 let lastUnitClick=null,lastRightClick=null;
 const interaction=new InteractionState();
 let state=game?.snapshot(),selected=new Set(),view=observer?1:0,drag=null,marker=null,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer,missionIntroTimer;
@@ -72,8 +73,23 @@ if(observer){document.title='longsword · 独立观察';$('session-label').textC
 function togglePause(){if(observer)return;paused=!paused;acc=0;last=performance.now();sendSnapshot();updateHud();}
 $('pause').onclick=togglePause;
 $('speed').onclick=()=>{speed=speed===1?2:1;sendSnapshot();updateHud();};
-function applyLevel(){const info=LEVELS[level],intro=$('mission-intro');$('mission-title').textContent=info.title;$('mission-desc').textContent=info.desc;clearTimeout(missionIntroTimer);intro.classList.remove('hidden');missionIntroTimer=setTimeout(()=>intro.classList.add('hidden'),3000);}
-function restart(){if(observer)return;Object.assign(game,new Game(level));closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera=level==='balanced'?{x:24,y:66,zoom:13}:{x:25,y:32,zoom:13};setAttack(false);applyLevel();sendSnapshot();updateHud();toast('新行动开始');}
+$('ai-control').onclick=()=>{
+  if(observer)return;
+  aiControl=!aiControl;
+  game.setPlayerAIControl(aiControl);
+  $('ai-control').classList.toggle('active',aiControl);
+  $('ai-control').textContent=aiControl?'AI 控制 · 开':'AI 控制';
+  toast(aiControl?'AI 托管已开启：AI 接管经济与部队':'已关闭 AI 托管');
+};
+$('launch-attack').onclick=()=>{
+  if(observer||game.defense.wave!==0)return;
+  game.defense.nextWaveAt=game.time;
+  toast('已立即开启进攻，敌军将马上出动！');
+  sendSnapshot();updateHud();
+};
+$('ai-control').hidden=observer||level!=='balanced';
+function applyLevel(){const info=LEVELS[level],intro=$('mission-intro');$('mission-title').textContent=info.title;$('mission-desc').textContent=info.desc;clearTimeout(missionIntroTimer);intro.classList.remove('hidden');missionIntroTimer=setTimeout(()=>intro.classList.add('hidden'),3000);$('ai-control').hidden=observer||level!=='balanced';}
+function restart(){if(observer)return;Object.assign(game,new Game(level));closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;aiControl=false;$('ai-control').classList.remove('active');$('ai-control').textContent='AI 控制';game.setPlayerAIControl(false);paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera=level==='balanced'?{x:24,y:66,zoom:13}:{x:25,y:32,zoom:13};setAttack(false);applyLevel();sendSnapshot();updateHud();toast('新行动开始');}
 $('restart').onclick=restart;$('again').onclick=restart;
 $('choose-level').onclick=()=>{if(observer)return;$('level-select').hidden=false;};
 for(const card of document.querySelectorAll('.level-card'))card.onclick=()=>{
