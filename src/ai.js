@@ -1,40 +1,73 @@
+import {NearbyIndex} from './queries.js';
+import {isArmyUnit} from './rules.js';
 import {coversCell} from './pathfinding.js';
 import {STATS} from './data.js';
 // 进攻关卡用联防 AI，防守关卡用两波总攻 AI。
 // AI 只通过 game 提供的公开接口下达指令，不读取玩家视野。
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 
-// 联防 AI：五个防区各自驻守；一处受袭时从其他防区抽调守军，平静后归队。
+// 据点联防：仅根据本方可见敌军及受袭信息出动，保留驻军。
 export class DefendAI{
-  constructor(){this.timer=0;this.responders=new Set();}
+  constructor(){this.timer=0;this.responders=new Set();this.contact=null;}
   update(game,dt){
     this.timer-=dt;if(this.timer>0)return;this.timer=2;
-    const army=game.units.filter(u=>u.team===1&&u.hp>0&&['shield','ironShield','archer','crossbow','armoredCar','steamWalker'].includes(u.type));
+    const army=game.units.filter(u=>u.team===1&&u.hp>0&&isArmyUnit(u));
     const alive=new Set(army.map(u=>u.id));
     for(const id of this.responders)if(!alive.has(id))this.responders.delete(id);
     const own=game.entities().filter(e=>e.team===1);
-    const recentlyHit=own.filter(e=>game.time-(e.lastDamagedAt??-Infinity)<=3)
-      .sort((a,b)=>(b.lastDamagedAt??0)-(a.lastDamagedAt??0))[0];
     const visible=game.units.filter(u=>u.team===0&&u.hp>0&&game.canSee(1,u));
-    const threatened=visible.map(enemy=>({enemy,anchor:own.filter(e=>e.building||e.role==='guard'||e.role==='reinforce')
-      .sort((a,b)=>distance(a,enemy)-distance(b,enemy))[0]}))
-      .filter(x=>x.anchor&&distance(x.enemy,x.anchor)<14).sort((a,b)=>distance(a.enemy,a.anchor)-distance(b.enemy,b.anchor))[0];
-    const threat=recentlyHit||threatened?.enemy;
-    if(!threat){
-      const returning=army.filter(u=>this.responders.has(u.id));
-      for(const u of returning){u.role='guard';u.aiOrderKey=null;}
-      for(const u of returning)game.command([u.id],'move',u.home,null,false,false,1);
-      this.responders.clear();
-      return;
+    const hit=own.filter(e=>game.time-(e.lastDamagedAt??-Infinity)<=3)
+      .sort((a,b)=>b.lastDamagedAt-a.lastDamagedAt)[0];
+    const visibleIndex=new NearbyIndex(visible);
+    const countNear=point=>visibleIndex.nearby(point,16,false).filter(u=>distance(u,point)<16).length;
+    let seen=null;
+    for(const enemy of visible){
+      const count=countNear(enemy);
+      if(!seen||count>seen.count)seen={enemy,count};
     }
-    const towers=game.buildings.filter(b=>b.team===1&&b.type==='tower'&&b.hp>0);
-    const sector=threat.defenseSector??towers.sort((a,b)=>distance(a,threat)-distance(b,threat))[0]?.defenseSector;
-    const committed=army.filter(u=>u.defenseSector===sector||this.responders.has(u.id));
-    const recruits=army.filter(u=>u.defenseSector!==sector&&!this.responders.has(u.id))
-      .sort((a,b)=>distance(a,threat)-distance(b,threat)).slice(0,Math.max(0,24-committed.length));
-    for(const u of recruits){u.role='reinforce';u.aiOrderKey=`reinforce:${sector}`;this.responders.add(u.id);}
-    const response=army.filter(u=>this.responders.has(u.id));
-    if(response.length)game.command(response.map(u=>u.id),'attack',{x:threat.x,y:threat.y},threat.team===0?threat.id:null,false,false,1);
+    if(hit||seen){
+      const p=hit||seen.enemy;
+      const count=countNear(p);
+      const wanted=hit?Math.max(40,Math.ceil(count*1.25)):count>=12?Math.ceil(count*1.25):8;
+      this.contact={x:p.x,y:p.y,wanted:Math.min(75,wanted),until:game.time+12};
+    }
+    this.scout(game,own.filter(u=>u.type==='wilddog'),visible);
+    if(!this.contact||game.time>this.contact.until){
+      const returning=army.filter(u=>this.responders.has(u.id));
+      for(const u of returning){u.role='guard';u.aiOrderKey=null;game.command([u.id],'move',u.home,null,false,false,1);}
+      this.responders.clear();this.contact=null;return;
+    }
+    const target=this.contact;
+    // 每点保留一半存活驻军，优先从离威胁最近的点抽调。
+    const candidates=[];
+    for(const sector of new Set(army.map(u=>u.defenseSector))){
+      const local=army.filter(u=>u.defenseSector===sector);
+      const keep=Math.min(local.length,Math.max(10,Math.ceil(local.length/2)));
+      candidates.push(...local.sort((a,b)=>distance(a,target)-distance(b,target)).slice(0,local.length-keep));
+    }
+    const response=candidates.sort((a,b)=>distance(a,target)-distance(b,target)).slice(0,target.wanted);
+    const chosen=new Set(response.map(u=>u.id));
+    for(const u of army.filter(u=>this.responders.has(u.id)&&!chosen.has(u.id))){
+      u.role='guard';u.aiOrderKey=null;game.command([u.id],'move',u.home,null,false,false,1);
+    }
+    this.responders=chosen;
+    const key=`respond:${Math.round(target.x/5)}:${Math.round(target.y/5)}`;
+    const selected=response.filter(u=>u.aiOrderKey!==key||(!u.goal&&u.targetId==null&&distance(u,target)>5));
+    for(const u of response){u.role='reinforce';u.aiOrderKey=key;}
+    if(selected.length)game.command(selected.map(u=>u.id),'attack',{x:target.x,y:target.y},null,false,false,1);
+  }
+  scout(game,dogs,visible){
+    const points=game.map.patrol;
+    if(!points.length)return;
+    dogs.forEach(u=>{
+      if(visible.some(e=>distance(u,e)<8)){
+        if(!u.goal||distance(u.goal,u.home)>2)game.command([u.id],'move',u.home,null,false,false,1);
+        return;
+      }
+      if(u.goal&&distance(u,u.goal)>2)return;
+      const p=points[u.scoutIndex%points.length];u.scoutIndex=(u.scoutIndex+1)%points.length;
+      game.command([u.id],'move',p,null,false,false,1);
+    });
   }
 }
 
@@ -74,17 +107,27 @@ export class BalancedAI{
   queueOf(game){return game[this.team===0?'queue':'aiQueue'];}
   update(game,dt){
     this.timer-=dt;if(this.timer>0)return;this.timer=3;
+    const context=this.collectSituation(game);
+    if(!context)return;
+    const military=this.updateMilitary(game,context);
+    this.updateEconomy(game,{...context,...military});
+  }
+  collectSituation(game){
     const t=this.team;
     const own=game.buildings.filter(b=>b.team===t&&b.hp>0);
     const base=own.find(b=>b.primary)||own.find(b=>b.type==='base'&&!b.constructionPending)||own[0];
     if(!base)return;
     const units=game.units.filter(u=>u.team===t&&u.hp>0);
-    const army=units.filter(u=>['shield','ironShield','archer','crossbow','armoredCar','steamWalker'].includes(u.type));
+    const army=units.filter(u=>isArmyUnit(u));
     const visible=game.entities().filter(e=>e.team!==t&&game.canSee(t,e));
     for(const b of visible.filter(e=>e.building))this.knownBuildings.set(b.id,{id:b.id,x:b.x,y:b.y});
+    const visibleIds=new Set(visible.map(e=>e.id));
     for(const [id,p] of this.knownBuildings){
-      if(game.visible[t][game.cellIndex(p.x,p.y)]&&!visible.some(e=>e.id===id))this.knownBuildings.delete(id);
+      if(game.visible[t][game.cellIndex(p.x,p.y)]&&!visibleIds.has(id))this.knownBuildings.delete(id);
     }
+    return {t,own,base,units,army,visible};
+  }
+  updateMilitary(game,{t,own,base,units,army,visible}){
     const dx=t===0?8:-8;
     const rally={x:base.x+dx,y:base.y-dx};
     const threat=visible.filter(e=>(!e.building||STATS[e.type].damage)&&(
@@ -107,6 +150,9 @@ export class BalancedAI{
     this.orderGroup(game,main,mode,target);
     this.scout(game,units.filter(u=>u.type==='wilddog'),visible,rally);
 
+    return {main,threat};
+  }
+  updateEconomy(game,{t,own,base,units,army,main,threat}){
     // 平时保留十名主力；经济或训练基地断档时允许少量残兵恢复建设。
     const recovering=['base','mine','factory'].some(type=>!own.some(b=>b.type===type));
     const workers=main.slice(0,Math.min(4,recovering?main.length:Math.max(0,main.length-10))).map(u=>u.id);
@@ -163,31 +209,9 @@ export class BalancedAI{
     const t=this.team;
     const count=type=>own.filter(b=>b.type===type).length;
     const cap=own.reduce((n,b)=>n+(!b.constructionPending?(STATS[b.type].pop||0):0),0);
-    const nearby=type=>{
-      for(const r of [7,11,15])for(const [dx,dy] of [[-1,0],[0,1],[-1,1],[1,0],[0,-1],[1,1]]){
-        const p=game.placement(type,{x:base.x+dx*r,y:base.y+dy*r},t);
-        if(!p.error)return {...p,type};
-      }
-      return null;
-    };
-    const resource=(type,nodes)=>{
-      for(const n of [...nodes].sort((a,b)=>distance(a,base)-distance(b,base))){
-        // 已被己方对应建筑覆盖的食物点不重复建设。
-        if(own.some(b=>b.type===type&&coversCell(b,n)))continue;
-        const p=game.placement(type,{x:n.x+.5,y:n.y+.5},t);
-        if(!p.error)return {...p,type};
-      }
-      return null;
-    };
-    const towerAt=group=>{
-      const center={x:(group.mine.x+group.food.x)/2+0.5,y:(group.mine.y+group.food.y)/2+0.5};
-      if(own.some(b=>b.type==='tower'&&distance(b,center)<=8))return null;
-      for(const [dx,dy] of [[0,0],[5,0],[0,5],[-5,0],[0,-5],[5,5],[-5,5],[5,-5],[-5,-5]]){
-        const p=game.placement('tower',{x:center.x+dx,y:center.y+dy},t);
-        if(!p.error)return {...p,type:'tower'};
-      }
-      return null;
-    };
+    const nearby=type=>this.nearbySite(game,type,base,t);
+    const resource=(type,nodes)=>this.resourceSite(game,type,nodes,base,own,t);
+    const towerAt=group=>this.towerSite(game,group,own,t);
     const preferred=this.economicPriority(game);
     const economyJob=(type,nodes)=>resource(type,nodes)||(type==='factory'?nearby(type):null);
     if(!count('factory')&&!count('mine')){
@@ -235,5 +259,30 @@ export class BalancedAI{
       if(tower)return tower;
     }
     return null;
+  }
+  nearbySite(game,type,base,t){
+      for(const r of [7,11,15])for(const [dx,dy] of [[-1,0],[0,1],[-1,1],[1,0],[0,-1],[1,1]]){
+        const p=game.placement(type,{x:base.x+dx*r,y:base.y+dy*r},t);
+        if(!p.error)return {...p,type};
+      }
+      return null;
+  }
+  resourceSite(game,type,nodes,base,own,t){
+      for(const n of [...nodes].sort((a,b)=>distance(a,base)-distance(b,base))){
+        // 已被己方对应建筑覆盖的食物点不重复建设。
+        if(own.some(b=>b.type===type&&coversCell(b,n)))continue;
+        const p=game.placement(type,{x:n.x+.5,y:n.y+.5},t);
+        if(!p.error)return {...p,type};
+      }
+      return null;
+  }
+  towerSite(game,group,own,t){
+      const center={x:(group.mine.x+group.food.x)/2+0.5,y:(group.mine.y+group.food.y)/2+0.5};
+      if(own.some(b=>b.type==='tower'&&distance(b,center)<=8))return null;
+      for(const [dx,dy] of [[0,0],[5,0],[0,5],[-5,0],[0,-5],[5,5],[-5,5],[5,-5],[-5,-5]]){
+        const p=game.placement('tower',{x:center.x+dx,y:center.y+dy},t);
+        if(!p.error)return {...p,type:'tower'};
+      }
+      return null;
   }
 }

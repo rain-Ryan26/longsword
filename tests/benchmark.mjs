@@ -8,7 +8,10 @@ const Before=process.argv[2]?(await import(pathToFileURL(path.resolve(process.ar
 const scenarios=[['demo',false],['attack',false],['balanced',false],['attack',true]];
 const median=values=>values.sort((a,b)=>a-b)[Math.floor(values.length/2)];
 function run(Type,level,move,steps=200){
-  const game=new Type(level);
+  const originalRandom=Math.random;let seed=20260913;
+  Math.random=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296);
+  let game;
+  try{game=new Type(level);}finally{Math.random=originalRandom;}
   const commandStart=performance.now();
   if(move)game.command(game.units.filter(u=>u.team===0).map(u=>u.id),'attack',{x:84,y:32});
   const commandMs=performance.now()-commandStart,start=performance.now();

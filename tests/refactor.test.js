@@ -163,3 +163,82 @@ test('同格视野去重保留较大预算、阵营隔离与探索记忆',()=>{
   assert.equal(game.visible[0][game.cellIndex(32,20)],0);
   assert.equal(game.explored[0][game.cellIndex(32,20)],1);
 });
+
+
+test('局部索敌跨格移动和同分时与全量查询保持一致',async()=>{
+  const {indexEntities,updateEntityIndex}=await import('../src/queries.js');
+  const game=productionGame();game.buildings=[];
+  const source=game.addUnit('shield',0,20,20);
+  for(let i=0;i<80;i++)game.addUnit('shield',1,5+i%20*3,5+Math.floor(i/20)*5);
+  game.visible[0].fill(1);
+  const entities=game.entities();indexEntities(entities);
+  const compare=()=>assert.equal(game.acquireTarget(source,entities)?.id,game.acquireTarget(source,[...entities])?.id);
+  compare();
+  for(const enemy of entities.slice(1,15)){
+    enemy.x=source.x+2;enemy.y=source.y;updateEntityIndex(entities,enemy);compare();
+  }
+  entities[1].hp=0;compare();
+});
+
+test('连续寻路复用缓冲后仍响应地形、建筑和地图尺寸变化',()=>{
+  const map={width:20,height:20,terrain:Array(400).fill(0)},buildings=[];
+  const start={x:2,y:10},end={x:18,y:10};
+  const compare=()=>assert.deepEqual(findPath(map,buildings,start,end,true),findPath({...map},buildings,start,end,true));
+  compare();
+  for(let y=0;y<20;y++)map.terrain[y*20+10]=1;
+  assert.deepEqual(findPath(map,buildings,start,end,true),[]);compare();
+  map.terrain[10*20+10]=0;compare();
+  buildings.push({type:'tower',x:10,y:10,hp:100});compare();
+  buildings[0].hp=0;compare();
+  map.width=24;map.height=18;map.terrain=Array(24*18).fill(0);compare();
+});
+
+test('提取后的输入处理覆盖选择、编队、取消、暂停及观察限制',async()=>{
+  const {bindInput}=await import('../src/input.js');
+  const {ControlGroups}=await import('../src/selection.js');
+  const handlers=new Map(),elements=new Map(),previousWindow=globalThis.window;
+  const element=id=>{
+    if(!elements.has(id))elements.set(id,{hidden:true,addEventListener:(name,fn)=>handlers.set(id+':'+name,fn),getBoundingClientRect:()=>({left:0,top:0,width:100,height:100}),setPointerCapture(){},hasPointerCapture:()=>false});
+    return elements.get(id);
+  };
+  globalThis.window={addEventListener:(name,fn)=>handlers.set(name,fn)};
+  const game=productionGame();const unit=game.addUnit('shield',0,20,20);
+  const interaction=new InteractionState();let pauses=0;
+  const noop=()=>{};
+  const ctx={game,observer:false,view:0,state:game.snapshot(),selected:new Set(),drag:null,
+    renderer:{world:(x,y)=>({x,y}),screen:(x,y)=>({x,y}),width:100,height:100},
+    interaction,$:element,toast:noop,closeBuild:()=>interaction.enter('select'),
+    setAttack:on=>interaction.enter(on?'attack':'select'),renderMode:noop,updateHud:noop,
+    sendSnapshot:noop,previewAt:noop,enterRallyMode:noop,togglePause:()=>{if(!ctx.observer)pauses++;},
+    settingsPanel:element('settings'),setSettings:noop,controlGroups:new ControlGroups()};
+  const key=(value,extra={})=>handlers.get('keydown')({key:value,target:{matches:()=>false},preventDefault:noop,...extra});
+  try{
+    bindInput(ctx);
+    handlers.get('game:pointerdown')({button:0,clientX:20,clientY:20,pointerId:1});
+    handlers.get('game:pointerup')({pointerId:1});
+    assert.ok(ctx.selected.has(unit.id));
+    key('1',{ctrlKey:true});ctx.selected.clear();key('1');assert.ok(ctx.selected.has(unit.id));
+    key('a');assert.equal(interaction.attackMode,true);
+    key('Escape');assert.equal(interaction.mode,'select');assert.equal(ctx.drag,null);
+    key(' ');assert.equal(pauses,1);
+    ctx.observer=true;bindInput(ctx);ctx.selected.clear();key('F2');assert.equal(ctx.selected.size,0);
+    key(' ');assert.equal(pauses,1);
+    ctx.observer=false;bindInput(ctx);unit.hp=0;key('1');assert.equal(ctx.selected.size,0);
+  }finally{if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;}
+});
+
+
+test('同一单位阶段建筑被击毁后移动通行缓存立即失效',()=>{
+  const game=productionGame();game.units=[];game.buildings=[];game.map.terrain.fill(0);
+  const first=game.addUnit('shield',0,2,2);
+  const attacker=game.addUnit('shield',0,8,9);
+  const follower=game.addUnit('shield',0,8,10);
+  const tower=game.addBuilding('tower',1,10,10);tower.hp=1;
+  first.order='move';first.path=[{x:3.5,y:2.5}];first.holdFire=true;
+  attacker.x=8.5;attacker.y=9.5;attacker.targetId=tower.id;
+  follower.x=8.5;follower.y=10.5;follower.order='move';follower.holdFire=true;follower.path=[{x:9.5,y:10.5}];
+  game.visible[0].fill(1);
+  const entities=game.entities();
+  game.stepUnits(1,entities,new Map(entities.map(e=>[e.id,e])));
+  assert.equal(tower.hp,0);assert.equal(follower.x,9.5);assert.equal(follower.path.length,0);
+});

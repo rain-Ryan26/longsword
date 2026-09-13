@@ -12,20 +12,19 @@ export const TECHNOLOGIES = {
   precisionBolts:{name:'精巧弩箭',section:'部队',food:300,ore:600,researchTime:60}
 };
 export const STATS = {
-  shield:{name:'盾兵',hp:75,armor:4,damage:14,cooldown:.85,range:1.5,speed:1.6,vision:9,food:50,ore:10,trainTime:5,movable:true,air:false},
-  ironShield:{name:'铁盾兵',hp:80,armor:7,damage:15,cooldown:.85,range:1.5,speed:1.6,vision:9,food:50,ore:20,trainTime:5,movable:true,air:false},
-  archer:{name:'弓箭兵',hp:50,armor:1,damage:15,cooldown:1.2,range:7,speed:1.75,vision:9,food:60,ore:10,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
-  crossbow:{name:'强弩兵',hp:50,armor:1,damage:22,cooldown:1.2,range:7,speed:1.75,vision:9,food:50,ore:30,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
-  armoredCar:{name:'装甲车',hp:200,armor:10,damage:22,cooldown:.6,range:7,speed:2.45,vision:10,food:150,ore:150,trainTime:10,pop:3,movable:true,air:false,ranged:true,machine:true,visualSize:1.2,collisionRadius:.55},
+  shield:{name:'盾兵',hp:70,armor:5,damage:14,cooldown:.85,range:1.5,speed:1.75,vision:9,food:50,ore:10,trainTime:5,movable:true,air:false},
+  ironShield:{name:'铁盾兵',hp:70,armor:8,damage:16,cooldown:.85,range:1.5,speed:1.75,vision:9,food:50,ore:20,trainTime:5,movable:true,air:false},
+  archer:{name:'弓箭兵',hp:50,armor:1,damage:15,cooldown:1.2,range:7,speed:1.6,vision:9,food:60,ore:10,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
+  crossbow:{name:'强弩兵',hp:50,armor:1,damage:22,cooldown:1.2,range:7,speed:1.6,vision:9,food:50,ore:20,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
+  armoredCar:{name:'装甲车',hp:200,armor:12,damage:22,cooldown:.6,range:7,speed:2.45,vision:10,food:150,ore:150,trainTime:10,pop:3,movable:true,air:false,ranged:true,machine:true,visualSize:1.2,collisionRadius:.55},
   steamWalker:{name:'蒸汽步行机',hp:300,armor:20,damage:70,cooldown:1,range:10,speed:1.4,vision:13,food:300,ore:500,trainTime:30,pop:5,movable:true,air:false,ranged:true,machine:true,visualSize:1.35,collisionRadius:.65,projectileKind:'cannonball',splashDamage:20,splashRadius:2,audioEvent:'cannonFire'},
   wilddog:{name:'野狗',hp:55,armor:0,damage:7,cooldown:.5,range:1.5,speed:2.75,vision:10,food:40,ore:0,trainTime:2,movable:true,air:false},
   pigeon:{name:'信鸽',hp:40,armor:0,damage:4,cooldown:.8,range:1.5,speed:5,vision:15,visionGround:5,food:60,ore:0,trainTime:2,movable:true,air:true,airOnly:true,minTurnRadius:2,orbitRadius:4},
-  base:{name:'前线基地',hp:900,armor:5,vision:14,food:300,ore:400,buildTime:240,maxBuilders:6,healRange:6,healRate:2,healTargets:5,pop:40},
+  base:{name:'前线基地',hp:2000,armor:5,vision:11,food:300,ore:400,buildTime:240,maxBuilders:6,healRange:6,healRate:2,healTargets:5,pop:40},
   mine:{name:'采矿场',hp:550,armor:5,vision:11,food:100,ore:200,buildTime:180,halfSize:1.5},
   tower:{name:'哨塔',hp:450,armor:5,vision:10*1.3,range:7+1,damage:15,cooldown:1.2,food:100,ore:150,buildTime:120,maxBuilders:2,halfSize:1,antiAir:true,antiAirRange:2+4},
   factory:{name:'食物厂',hp:550,armor:5,vision:11,food:100,ore:200,buildTime:180,halfSize:1.5},
   machineFactory:{name:'机械工厂',hp:1200,armor:5,vision:11,food:300,ore:400,buildTime:480,maxBuilders:8},
-  camp:{name:'资源营地',hp:550,armor:5,vision:11}
 };
 export const popOf=t=>STATS[t].pop||1;
 export const usedPop=(units,team,queue=[])=>units.reduce((n,u)=>n+(u.team===team&&u.hp>0?popOf(u.type):0),0)+queue.reduce((n,q)=>n+popOf(q.type),0);
@@ -39,15 +38,16 @@ export function createMap(){
   // resources 坐标为资源区块（格子）编号，矿点覆盖该 1×1 格子
   return {version:1,width:W,height:H,terrain,resources:[{x:24,y:40}],camps:[{x:76,y:18},{x:77,y:46}],patrol:[{x:57,y:25},{x:70,y:27},{x:72,y:37},{x:58,y:38}]};
 }
-// 进攻关卡：我方在西、敌方在东，中部山地森林分隔；双方对称经济
+// 进攻关卡：西东战场，三处基地分守上、中、下路。
 export function createMapAttack(){
-  const terrain=new Array(W*H).fill(0);
-  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
-    const mountain=((x-48)/5)**2+((y-20)/12)**2<1||((x-46)/6)**2+((y-46)/10)**2<1;
-    const forest=((x-30)/8)**2+((y-12)/6)**2<1||((x-66)/8)**2+((y-52)/6)**2<1||((x-48)/7)**2+((y-33)/5)**2<1;
-    terrain[y*W+x]=mountain?1:forest?2:0;
+  const width=128,height=88,terrain=new Array(width*height).fill(0);
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+    const ellipse=(cx,cy,rx,ry)=>((x-cx)/rx)**2+((y-cy)/ry)**2<1;
+    const mountain=ellipse(62,22,6,14)||ellipse(62,66,6,14);
+    const forest=ellipse(37,18,8,6)||ellipse(83,70,8,6)||ellipse(65,44,7,5);
+    terrain[y*width+x]=mountain?1:forest?2:0;
   }
-  return {version:1,width:W,height:H,terrain,resources:[{x:22,y:40},{x:72,y:24}],camps:[],patrol:[]};
+  return {version:1,width,height,terrain,resources:[{x:22,y:52},{x:114,y:44},{x:50,y:12},{x:50,y:76}],camps:[{x:104,y:16},{x:108,y:44},{x:104,y:72}],patrol:[{x:76,y:16},{x:52,y:12},{x:35,y:36},{x:76,y:44},{x:48,y:44},{x:35,y:52},{x:76,y:72},{x:52,y:76}],spawns:[{x:12,y:44},{x:108,y:44}]};
 }
 // 防守关卡：中部山体纵墙仅留缺口，敌军须经缺口进攻我方基地
 export function createMapDefend(){

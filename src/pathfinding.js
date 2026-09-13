@@ -70,12 +70,22 @@ class Heap{
 // 保证存在替代路线时自动分流、只有一条路时不会无谓绕远。
 // 分流靠"密度反馈 + 周期重寻路"随时间自然形成，无需随机扰动。
 const CROWD_K=.7,CROWD_CAP=4;
+const searchBuffers=new WeakMap();
+function searchBuffer(map,size){
+  let buffer=searchBuffers.get(map);
+  if(!buffer||buffer.g.length!==size){
+    buffer={heap:new Heap(),g:new Float64Array(size),parent:new Int32Array(size),closed:new Uint8Array(size)};
+    searchBuffers.set(map,buffer);
+  }
+  buffer.g.fill(Infinity);buffer.closed.fill(0);buffer.heap.a.length=0;
+  return buffer;
+}
 export function findPath(map,buildings,start,end,avoidMountains=false,avoidForests=avoidMountains,density=null){
   const W=map.width??96,H=map.height??64;
   const canWalk=createWalkability(map,buildings);
   const dest=nearestFree(map,buildings,end.x,end.y,avoidMountains,avoidForests,canWalk);if(!dest)return [];
   const sx=Math.floor(start.x),sy=Math.floor(start.y),tx=Math.floor(dest.x),ty=Math.floor(dest.y),goal=ty*W+tx;
-  const heap=new Heap(),g=new Float64Array(W*H).fill(Infinity),parent=new Int32Array(W*H).fill(-1),closed=new Uint8Array(W*H);
+  const {heap,g,parent,closed}=searchBuffer(map,W*H);
   const origin=sy*W+sx;g[origin]=0;heap.push({i:origin,f:0});
   while(heap.a.length){
     const {i}=heap.pop();if(closed[i])continue;if(i===goal){const out=[];let p=i;while(p!==origin){out.push({x:p%W+.5,y:Math.floor(p/W)+.5});p=parent[p];}return out.reverse();}closed[i]=1;
