@@ -200,6 +200,7 @@ export class Game{
   }
   dispatchBuilders(b,assignments){
     for(const {u,p,path} of assignments){u.buildingId=b.id;u.order='build';u.goal=p;u.path=path;u.waypoints=[];u.targetId=null;u.holdFire=false;u.allowMountains=true;u.allowForests=true;u.repath=1;}
+    this.onBuildersDispatched?.(assignments.map(({u})=>u.id));
   }
   assistBuild(ids,id){
     if(this.result)return '战局已结束';

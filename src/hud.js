@@ -21,7 +21,7 @@ function renderTrainingQueue(queue,state){
 function update({state,selected,view,paused,speed,level,interaction}){
   const {selectedBuilding,buildMenu,buildType,techMenu}=interaction;
   $('food').textContent=Math.floor(state.food);$('ore').textContent=Math.floor(state.ore);$('population').textContent=`${usedPop(state.units,0)} / ${state.popCap}`;
-  const botView=view===2;$('bot-resources').hidden=!botView;if(botView){$('bot-food').textContent=Math.floor(state.aiFood);$('bot-ore').textContent=Math.floor(state.aiOre);}
+  const botView=view===2;$('bot-resources').hidden=!botView;if(botView){$('bot-food').textContent=Math.floor(state.aiFood);$('bot-ore').textContent=Math.floor(state.aiOre);$('bot-population').textContent=usedPop(state.units,1);}
   const seconds=Math.floor(state.time);$('clock').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
   $('pause').textContent=paused?'继续':'暂停';$('pause').classList.toggle('active',paused);$('speed').textContent=speed+'×';
   $('launch-attack').hidden=observer||state.level!=='defend'||state.defense.wave!==0;

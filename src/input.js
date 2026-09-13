@@ -4,6 +4,7 @@ import {isOffensiveMovableUnit,nearestEntity} from './selection.js';
 export function bindInput(ctx){
   const {game,observer,renderer,interaction,$,toast,closeBuild,setAttack,renderMode,updateHud,
     sendSnapshot,previewAt,enterRallyMode,togglePause,settingsPanel,setSettings,controlGroups}=ctx;
+  if(!observer)game.onBuildersDispatched=ids=>{for(const id of ids)ctx.selected.delete(id);};
   function local(event){const rect=$('game').getBoundingClientRect();return {x:event.clientX-rect.left,y:event.clientY-rect.top};}
   function visibleToView(e){const team=ctx.view===2?1:0;return ctx.view===1||e.team===team||ctx.state.visible[team][Math.floor(e.y)*ctx.state.map.width+Math.floor(e.x)];}
   function issue(p,attack,append=false,allowMountains=false,groundOnly=false){

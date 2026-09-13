@@ -221,6 +221,30 @@ test('提取后的输入处理覆盖选择、编队、取消、暂停及观察�
     key('a');assert.equal(interaction.attackMode,true);
     key('Escape');assert.equal(interaction.mode,'select');assert.equal(ctx.drag,null);
     key(' ');assert.equal(pauses,1);
+    // 建造和补派只取消实际施工人员的选中；失败不改变选择。
+    const troops=Array.from({length:5},(_,i)=>game.addUnit('shield',0,24+i,20));
+    ctx.selected=new Set(troops.map(u=>u.id));game.visible[0].fill(1);
+    interaction.enter('place',{type:'tower'});
+    const click=()=>handlers.get('game:pointerdown')({button:0,clientX:30,clientY:26,pointerId:1});
+    const savedOre=game.ore;game.ore=0;click();assert.equal(ctx.selected.size,5);
+    game.ore=savedOre;click();
+    const site=game.buildings.find(b=>b.type==='tower'&&b.constructionPending);
+    const workers=troops.filter(u=>u.buildingId===site.id);
+    assert.equal(workers.length,2);assert.equal(ctx.selected.size,3);
+    for(const u of workers)assert.equal(ctx.selected.has(u.id),false);
+    game.releaseBuilder(workers[0]);
+    handlers.get('game:pointerdown')({button:2,clientX:30,clientY:26,pointerId:1,preventDefault:noop});
+    assert.equal(ctx.selected.size,2);
+    // 清场完成后才派遣的施工人员也取消选中。
+    const delayed=game.addUnit('shield',0,40,40);
+    ctx.selected=new Set([delayed.id]);game.visible[0].fill(1);
+    assert.equal(game.build([delayed.id],'tower',{x:40,y:40}),null);
+    assert.equal(ctx.selected.has(delayed.id),true);
+    delayed.x=37;delayed.y=40;
+    game.stepBuildings(0);
+    assert.equal(delayed.order,'build');assert.equal(ctx.selected.has(delayed.id),false);
+    ctx.selected.add(delayed.id);game.stepBuildings(0);
+    assert.equal(ctx.selected.has(delayed.id),true);
     ctx.observer=true;bindInput(ctx);ctx.selected.clear();key('F2');assert.equal(ctx.selected.size,0);
     key(' ');assert.equal(pauses,1);
     ctx.observer=false;bindInput(ctx);unit.hp=0;key('1');assert.equal(ctx.selected.size,0);
