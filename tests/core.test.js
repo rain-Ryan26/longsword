@@ -770,6 +770,22 @@ test('哨塔入驻预留最多四人，到场隐藏且仍占人口，退出保�
   assert.equal(new Set(inside.map(u=>`${u.x},${u.y}`)).size,4);
   assert.deepEqual(inside.map(u=>u.hp),hp);
 });
+test('载具不能入驻或预留哨塔名额，混选时其他地面单位仍可入驻',()=>{
+  const g=productionGame(),tower=g.addBuilding('tower',0,25,32);
+  const vehicles=['armoredCar','steamWalker'].map((type,i)=>g.addUnit(type,0,23.5,31.5+i));
+  for(const u of vehicles){
+    g.command([u.id],'move',{x:20,y:32});
+    assert.match(g.enterTower([u.id],tower.id),/载具/);
+    assert.equal(u.order,'move');assert.ok(!u.garrisonTarget&&!u.garrisonId);
+  }
+  const infantry=Array.from({length:4},(_,i)=>g.addUnit(i%2?'archer':'shield',0,20,29+i));
+  assert.equal(g.enterTower([...vehicles,...infantry].map(u=>u.id),tower.id),null);
+  assert.equal(infantry.filter(u=>u.garrisonTarget===tower.id).length,4);
+  assert.ok(vehicles.every(u=>u.order==='move'&&!u.garrisonTarget&&!u.garrisonId));
+  advance(g,12);
+  assert.ok(infantry.every(u=>u.garrisonId===tower.id));
+  assert.ok(vehicles.every(u=>!u.garrisonTarget&&!u.garrisonId));
+});
 test('入驻只接受己方完工哨塔；改令、退出和塔毁取消赶路预留',()=>{
   const g=productionGame(),tower=g.addBuilding('tower',0,30,32),u=g.addUnit('archer',0,20,32);
   tower.constructionPending=true;assert.match(g.enterTower([u.id],tower.id),/已完工/);

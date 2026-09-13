@@ -19,7 +19,7 @@ export function enterTower(game,ids,id,team=0){
   let available=GARRISON_LIMIT-occupants(game,id).length-game.units.filter(u=>u.hp>0&&u.garrisonTarget===id).length;
   if(available<=0)return '哨塔入驻名额已满（最多 4 人）';
   let dispatched=0;
-  for(const u of game.units.filter(u=>ids.includes(u.id)&&u.team===team&&u.hp>0&&!u.garrisonId&&!u.garrisonTarget&&!STATS[u.type].air&&STATS[u.type].movable!==false).sort((a,c)=>distance(a,b)-distance(c,b))){
+  for(const u of game.units.filter(u=>ids.includes(u.id)&&u.team===team&&u.hp>0&&!u.garrisonId&&!u.garrisonTarget&&!STATS[u.type].air&&!STATS[u.type].machine&&STATS[u.type].movable!==false).sort((a,c)=>distance(a,b)-distance(c,b))){
     if(!available)break;
     for(const p of spots(game,b).sort((a,c)=>distance(a,u)-distance(c,u))){
       const path=findPath(game.map,game.buildings,u,p,...game.terrainAvoidance(u));
@@ -29,7 +29,7 @@ export function enterTower(game,ids,id,team=0){
     }
   }
   game.revision++;
-  return dispatched?null:'请选择能到达哨塔的可移动地面单位';
+  return dispatched?null:'请选择能到达哨塔的非载具可移动地面单位（装甲车、蒸汽步行机不能入驻）';
 }
 export function stepGarrison(game,u,dt){
   const b=towerFor(game,u.garrisonTarget,u.team);

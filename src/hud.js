@@ -1,3 +1,4 @@
+import {defensePresentation} from './defense.js';
 import {STATS,TECHNOLOGIES,usedPop} from './data.js';
 import {TRAIN_QUEUE_LIMIT,TRAINABLE_TYPES,BUILDING_TYPES,productionType,trainingPlan,researchError,foodRate} from './rules.js';
 const UNIT_ICONS={shield:'🛡',ironShield:'🛡️',archer:'🏹',crossbow:'🎯',armoredCar:'',steamWalker:'',wilddog:'🐕',pigeon:'🕊'};
@@ -23,12 +24,14 @@ function update({state,selected,view,paused,speed,level,interaction}){
   $('food').textContent=Math.floor(state.food);$('ore').textContent=Math.floor(state.ore);$('population').textContent=`${usedPop(state.units,0)} / ${state.popCap}`;
   const botView=view===2;$('bot-resources').hidden=!botView;if(botView){$('bot-food').textContent=Math.floor(state.aiFood);$('bot-ore').textContent=Math.floor(state.aiOre);$('bot-population').textContent=usedPop(state.units,1);}
   const seconds=Math.floor(state.time);$('clock').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
-  $('pause').textContent=paused?'继续':'暂停';$('pause').classList.toggle('active',paused);$('speed').textContent=speed+'×';
-  $('launch-attack').hidden=observer||state.level!=='defend'||state.defense.wave!==0;
+  $('pause-label').textContent=paused?'继续':'暂停';$('pause').querySelector('path').setAttribute('d',paused?'M7 4l13 8-13 8V4Z':'M8 5v14M16 5v14');$('pause').setAttribute('aria-label',paused?'继续':'暂停');$('pause').classList.toggle('active',paused);$('speed-label').textContent=speed+'×';
+  const defense=defensePresentation(state,observer);
+  $('launch-attack').hidden=!defense.canLaunch;
+  $('defense-status').hidden=!defense.text;$('defense-status').textContent=defense.text;
   const units=state.units.filter(u=>selected.has(u.id)),counts={};for(const u of units)counts[STATS[u.type].name]=(counts[STATS[u.type].name]||0)+1;
   const label=Object.entries(counts).map(([name,count])=>`${count} ${name}`).join(' · ');
   $('selection-title').textContent=observer?'观察模式':units.length?'已选择部队':'未选择部队';$('selection-count').textContent=units.length;
-  $('selection-info').textContent=observer?'只观察共享战局，指令请在主窗口下达。':units.length?`${label} · ${units.filter(u=>u.holdFire).length} 停火\n总生命 ${Math.ceil(units.reduce((n,u)=>n+u.hp,0))}`:'左键拖动，框选蓝色部队。';
+  $('selection-info').textContent=observer?'只观察共享战局，指令请在主窗口下达。':units.length?`${label} · ${units.filter(u=>u.holdFire).length} 停火\n总生命 ${Math.ceil(units.reduce((n,u)=>n+u.hp,0))}`:'';
   const building=state.buildings.find(b=>b.id===selectedBuilding&&b.hp>0);
   $('building-actions').hidden=observer||(!buildMenu&&!building&&!techMenu);
   $('build-options').hidden=!buildMenu;$('technology-panel').hidden=!techMenu;$('demolish').hidden=!building||techMenu;
@@ -62,7 +65,6 @@ function update({state,selected,view,paused,speed,level,interaction}){
   $('result').hidden=!state.result;if(state.result){
     const copy={balanced:['敌建筑全毁','敌方全部建筑已摧毁，均衡对抗胜利。','保护经济建筑，集结部队后再出击。'],demo:['敌营已摧毁','两座敌营已摧毁，本次行动胜利。','调整阵型，保护弓箭兵，再试一次。'],attack:['敌建筑全毁','敌方建筑全部摧毁，进攻胜利。','敌军防守严密，尝试先削弱其经济或集火逐个击破。'],defend:['防线守住了','两波敌军已全部消灭，我方仍有建筑存活。','防线被突破，试试哨塔与弓箭兵配合。']}[state.level||level];
     $('result-title').textContent=state.result==='victory'?copy[0]:(['defend','balanced'].includes(state.level)?'我方建筑全毁':'基地已失守');$('result-copy').textContent=state.result==='victory'?copy[1]:copy[2];}
-  $('zoom-label').textContent=Math.round(renderer.camera.zoom/13*100)+'%';
 }
   return {update};
 }

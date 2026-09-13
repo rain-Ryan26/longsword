@@ -214,6 +214,10 @@ test('提取后的输入处理覆盖选择、编队、取消、暂停及观察�
   const key=(value,extra={})=>handlers.get('keydown')({key:value,target:{matches:()=>false},preventDefault:noop,...extra});
   try{
     bindInput(ctx);
+    ctx.selectingLevel=true;key(' ');key('F2');key('r');
+    handlers.get('game:pointerdown')({button:0,clientX:20,clientY:20,pointerId:1});
+    assert.equal(pauses,0);assert.equal(ctx.selected.size,0);assert.equal(ctx.drag,null);assert.equal(interaction.mode,'select');
+    ctx.selectingLevel=false;
     handlers.get('game:pointerdown')({button:0,clientX:20,clientY:20,pointerId:1});
     handlers.get('game:pointerup')({pointerId:1});
     assert.ok(ctx.selected.has(unit.id));

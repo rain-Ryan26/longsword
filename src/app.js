@@ -1,3 +1,4 @@
+import {startNextDefenseWave} from './defense.js';
 import {bindInput} from './input.js';
 import {ControlGroups} from './selection.js';
 import {LEVELS} from './levels.js';
@@ -22,7 +23,7 @@ const controlGroups=new ControlGroups();
 let aiControl=false;
 let lastUnitClick=null,lastRightClick=null;
 const interaction=new InteractionState();
-let state=game?.snapshot(),selected=new Set(),view=observer?1:0,drag=null,marker=null,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer,missionIntroTimer;
+let state=game?.snapshot(),selected=new Set(),view=observer?1:0,drag=null,marker=null,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer,missionIntroTimer,headerTimer;
 const renderer=new Renderer($('game'),$('minimap'));renderer.resize();if(observer)renderer.camera={x:W/2,y:H/2,zoom:Math.max(5,Math.min(renderer.width/W,renderer.height/H)*.88)};$('perspective').value=view;
 const audio=new AudioManager(),settingsPanel=$('settings-panel');
 function syncAudioSettings(){const {master,effects,muted}=audio.settings;$('master-volume').value=master;$('effects-volume').value=effects;$('sound-muted').checked=muted;$('master-volume-value').textContent=`${master}%`;$('effects-volume-value').textContent=`${effects}%`;}
@@ -60,7 +61,8 @@ for(const type of BUILDING_TYPES)$('build-'+type).onclick=()=>{
 $('demolish').onclick=()=>{if(observer)return;const error=game.demolish(interaction.selectedBuilding);toast(error||'建筑已拆除，不退还资源');if(!error)closeBuild();sendSnapshot();updateHud();};
 function syncView(){lastRightClick=null;view=Number($('perspective').value);$('view-name').textContent=['玩家视角','全局视角','BOT 视角'][view];}
 $('perspective').addEventListener('input',syncView);syncView();
-function sendSnapshot(){if(game)host.publish(game.snapshot(),paused,speed,performance.now());}
+function selectingLevel(){return !observer&&!$('level-select').hidden;}
+function sendSnapshot(){if(game)host.publish(game.snapshot(),paused||selectingLevel(),speed,performance.now());}
 channel.onmessage=event=>{
   const msg=event.data;
   if(observer&&msg.type==='state'&&msg.to===receiver.id){
@@ -70,10 +72,10 @@ channel.onmessage=event=>{
   }else if(!observer&&host.receive(msg,performance.now()))sendSnapshot();
 };
 window.addEventListener('pagehide',()=>{if(receiver)channel.postMessage(receiver.message('bye'));});
-if(observer){document.title='longsword · 独立观察';$('session-label').textContent='独立观察 · 共享战局';$('connection').hidden=false;for(const id of ['pause','speed','restart','again'])$(id).disabled=true;$('level-select').hidden=true;channel.postMessage(receiver.message());setAttack(false);}
-function togglePause(){if(observer)return;paused=!paused;acc=0;last=performance.now();sendSnapshot();updateHud();}
+if(observer){document.title='longsword · 独立观察';$('connection').hidden=false;for(const id of ['pause','speed','restart','again'])$(id).disabled=true;$('level-select').hidden=true;channel.postMessage(receiver.message());setAttack(false);}
+function togglePause(){if(observer||selectingLevel())return;paused=!paused;acc=0;last=performance.now();sendSnapshot();updateHud();}
 $('pause').onclick=togglePause;
-$('speed').onclick=()=>{speed=speed===1?2:speed===2?4:1;sendSnapshot();updateHud();};
+$('speed').onclick=()=>{if(observer||selectingLevel())return;speed=speed===1?2:speed===2?4:1;sendSnapshot();updateHud();};
 $('ai-control').onclick=()=>{
   if(observer)return;
   aiControl=!aiControl;
@@ -83,16 +85,16 @@ $('ai-control').onclick=()=>{
   toast(aiControl?'AI 托管已开启：AI 接管经济与部队':'已关闭 AI 托管');
 };
 $('launch-attack').onclick=()=>{
-  if(observer||game.defense.wave!==0)return;
-  game.defense.nextWaveAt=game.time;
+  if(observer||!startNextDefenseWave(game))return;
   toast('已立即开启进攻，敌军将马上出动！');
   sendSnapshot();updateHud();
 };
 $('ai-control').hidden=observer||level!=='balanced';
-function applyLevel(){const info=LEVELS[level],intro=$('mission-intro');$('mission-title').textContent=info.title;$('mission-desc').textContent=info.desc;clearTimeout(missionIntroTimer);intro.classList.remove('hidden');missionIntroTimer=setTimeout(()=>intro.classList.add('hidden'),3000);$('ai-control').hidden=observer||level!=='balanced';}
-function restart(){if(observer)return;Object.assign(game,new Game(level));closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;aiControl=false;$('ai-control').classList.remove('active');$('ai-control').textContent='AI 控制';game.setPlayerAIControl(false);paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera=['balanced','attack'].includes(level)?{x:24,y:66,zoom:13}:{x:25,y:32,zoom:13};setAttack(false);applyLevel();sendSnapshot();updateHud();toast('新行动开始');}
+function resetHeader(){clearTimeout(headerTimer);document.querySelector('header').classList.remove('compact');}
+function applyLevel(){resetHeader();headerTimer=setTimeout(()=>document.querySelector('header').classList.add('compact'),5000);const info=LEVELS[level],intro=$('mission-intro');$('mission-title').textContent=info.title;$('mission-desc').textContent=info.desc;clearTimeout(missionIntroTimer);intro.classList.remove('hidden');missionIntroTimer=setTimeout(()=>intro.classList.add('hidden'),3000);$('ai-control').hidden=observer||level!=='balanced';}
+function restart(){if(observer||selectingLevel())return;Object.assign(game,new Game(level));closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;aiControl=false;$('ai-control').classList.remove('active');$('ai-control').textContent='AI 控制';game.setPlayerAIControl(false);paused=false;speed=1;acc=0;last=performance.now();state=game.snapshot();renderer.camera=['balanced','attack'].includes(level)?{x:24,y:66,zoom:13}:{x:25,y:32,zoom:13};setAttack(false);applyLevel();sendSnapshot();updateHud();toast('新行动开始');}
 $('restart').onclick=restart;$('again').onclick=restart;
-$('choose-level').onclick=()=>{if(observer)return;$('level-select').hidden=false;};
+$('choose-level').onclick=()=>{if(observer)return;$('level-select').hidden=false;resetHeader();acc=0;last=performance.now();closeBuild();drag=null;clearTimeout(missionIntroTimer);clearTimeout(toastTimer);$('toast').classList.remove('visible');sendSnapshot();updateHud();};
 for(const card of document.querySelectorAll('.level-card'))card.onclick=()=>{
   if(observer)return;level=card.dataset.level;$('level-select').hidden=true;restart();toast(LEVELS[level].toast);
 };
@@ -113,6 +115,7 @@ $('base-queue').addEventListener('click',event=>{
 bindInput({
   game,observer,renderer,interaction,$,toast,closeBuild,setAttack,renderMode,updateHud,
   sendSnapshot,previewAt,enterRallyMode,togglePause,settingsPanel,setSettings,controlGroups,
+  get selectingLevel(){return selectingLevel();},
   get view(){return view;},
   get state(){return state;},set state(value){state=value;},
   get selected(){return selected;},set selected(value){selected=value;},
@@ -131,9 +134,11 @@ function updateHud(){
   if((interaction.selectedBuilding&&!building)||(interaction.buildMenu&&!selected.size)||
     (state.result&&interaction.mode!=='select'))closeBuild();
   hud.update({state,selected,view,paused,speed,level,interaction});
+  for(const id of ['pause','speed','restart'])$(id).disabled=observer||selectingLevel();
+  if(selectingLevel())$('launch-attack').hidden=true;
 }
 // Simulation uses a timer so an observer can remain foreground while the host is hidden.
-setInterval(()=>{const now=performance.now();if(observer&&now-lastHello>=1000){channel.postMessage(receiver.message());lastHello=now;}const elapsed=Math.min((now-last)/1000,1);last=now;if(game){if(!paused&&!game.result){acc+=elapsed*speed;let steps=0;while(acc>=.05&&steps++<40){game.step(.05);acc-=.05;}for(const event of game.consumeAudioEvents())audio.play(event);}else acc=0;state=game.snapshot();if(now-lastSnapshot>=100){sendSnapshot();lastSnapshot=now;}}else if(now-lastReceived>3000){$('connection').hidden=false;$('connection').textContent=lastReceived?'主窗口未响应，请保持主窗口打开。':'等待主窗口的战局数据…';}if(now-lastHud>=150){updateHud();lastHud=now;}},50);
+setInterval(()=>{const now=performance.now();if(observer&&now-lastHello>=1000){channel.postMessage(receiver.message());lastHello=now;}const elapsed=Math.min((now-last)/1000,1);last=now;if(game){if(!selectingLevel()&&!paused&&!game.result){acc+=elapsed*speed;let steps=0;while(acc>=.05&&steps++<40){game.step(.05);acc-=.05;}for(const event of game.consumeAudioEvents())audio.play(event);}else acc=0;state=game.snapshot();if(now-lastSnapshot>=100){sendSnapshot();lastSnapshot=now;}}else if(now-lastReceived>3000){$('connection').hidden=false;$('connection').textContent=lastReceived?'主窗口未响应，请保持主窗口打开。':'等待主窗口的战局数据…';}if(now-lastHud>=150){updateHud();lastHud=now;}},50);
 const frameInterval=1000/120;
 let lastFrame=null;
 function frame(now){
@@ -145,4 +150,4 @@ function frame(now){
   }
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);updateHud();if(!observer)toast('框选蓝色部队，按 A 后点击目的地。');
+requestAnimationFrame(frame);updateHud();

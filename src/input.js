@@ -27,7 +27,7 @@ export function bindInput(ctx){
   const canvas=$('game');
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
   function onPointerDown(e){
-    if(!ctx.state)return;
+    if(!ctx.state||ctx.selectingLevel)return;
     const p=local(e);
     if(e.button!==2)ctx.lastRightClick=null;
     if(e.button===1){
@@ -104,10 +104,11 @@ export function bindInput(ctx){
   }ctx.drag=null;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);});
   canvas.addEventListener('pointercancel',()=>ctx.drag=null);
   canvas.addEventListener('wheel',e=>{ctx.lastRightClick=null;e.preventDefault();const p=local(e);renderer.zoomAt(p.x,p.y,Math.exp(-e.deltaY*.001));},{passive:false});
-  $('minimap').addEventListener('pointerdown',e=>{ctx.lastRightClick=null;const r=$('minimap').getBoundingClientRect();if(!ctx.state)return;renderer.camera.x=(e.clientX-r.left)/r.width*ctx.state.map.width;renderer.camera.y=(e.clientY-r.top)/r.height*ctx.state.map.height;renderer.clamp();});
+  $('minimap').addEventListener('pointerdown',e=>{ctx.lastRightClick=null;const r=$('minimap').getBoundingClientRect();if(!ctx.state||ctx.selectingLevel)return;renderer.camera.x=(e.clientX-r.left)/r.width*ctx.state.map.width;renderer.camera.y=(e.clientY-r.top)/r.height*ctx.state.map.height;renderer.clamp();});
   window.addEventListener('keydown',e=>{
     ctx.lastRightClick=null;
     if(e.key==='Escape'&&!settingsPanel.hidden){e.preventDefault();setSettings(false);return;}
+    if(ctx.selectingLevel)return;
     if(e.target.matches('input, textarea, select')||e.target.isContentEditable)return;
     const key=e.key.toLowerCase();
     if(/^[0-9]$/.test(key)&&!e.altKey&&!e.metaKey&&!e.shiftKey){
