@@ -35,6 +35,7 @@ export class Renderer{
     const c=this.ctx,z=this.camera.zoom,team=view===2?1:0,all=view===1,visible=state.visible[team],explored=state.explored[team];
     c.fillStyle='#101b17';c.fillRect(0,0,this.width,this.height);c.save();c.translate(this.width/2-this.camera.x*z,this.height/2-this.camera.y*z);c.scale(z,z);
     c.drawImage(this.terrainCanvas,0,0,W,H);
+    if(state.level==='sandbox'&&state.sandboxEditing){c.fillStyle='#85d7e315';c.fillRect(0,0,W/2,H);c.fillStyle='#e5967815';c.fillRect(W/2,0,W/2,H);c.strokeStyle='#e8efff80';c.lineWidth=.12;c.setLineDash([.6,.6]);c.beginPath();c.moveTo(W/2,0);c.lineTo(W/2,H);c.stroke();c.setLineDash([]);}
     const mined=node=>state.buildings.some(b=>b.type==='mine'&&b.hp>0&&!b.constructionPending&&coversCell(b,node));
     for(const node of state.map.resources||[]){
       if(mined(node))continue;

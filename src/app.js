@@ -1,3 +1,4 @@
+import {SANDBOX_TYPES,SANDBOX_SPACING,placeSandboxUnit,deleteSandboxUnits,startSandboxBattle,restoreSandboxSetup,mirrorSandboxFormation} from './sandbox.js';
 import {startNextDefenseWave} from './defense.js';
 import {bindInput} from './input.js';
 import {ControlGroups} from './selection.js';
@@ -34,9 +35,17 @@ $('sound-muted').addEventListener('change',()=>{audio.save({muted:$('sound-muted
 $('test-cannon-sound').onclick=()=>{audio.unlock();audio.play('cannonFire');};syncAudioSettings();
 for(const type of BUILDING_TYPES)$(`build-${type}`).textContent=`${STATS[type].name} [${{base:'C',mine:'R',tower:'Q',factory:'F',machineFactory:'M'}[type]}] · ${STATS[type].ore} 矿 / ${STATS[type].food} 食物`;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),2600);}
+let sandboxType=null,sandboxLast=null;
+function sandboxEditing(){return !observer&&game.level==='sandbox'&&game.sandboxEditing;}
+function selectSandboxType(type){sandboxType=type;sandboxLast=null;selected.clear();closeBuild();for(const button of $('sandbox-units').children)button.classList.toggle('active',button.dataset.type===type);renderMode();}
+for(const type of SANDBOX_TYPES){const button=document.createElement('button');button.dataset.type=type;button.className='train-option';const icon=document.createElement('span');icon.className=`unit-icon${STATS[type].machine?` machine-icon ${type}-icon`:''}`;icon.textContent={shield:'🛡',ironShield:'🛡',archer:'🏹',crossbow:'🎯',wilddog:'🐕',pigeon:'🕊'}[type]||'';button.append(icon,document.createTextNode(STATS[type].name));button.onclick=()=>selectSandboxType(type);$('sandbox-units').append(button);}
+$('sandbox-mirror').onclick=()=>{if(observer)return;mirrorSandboxFormation(game);selected.clear();sandboxLast=null;sendSnapshot();updateHud();toast('已将蓝方阵型镜像到红方');};
+$('sandbox-select').onclick=()=>selectSandboxType(null);
+$('sandbox-toggle').onclick=()=>{if(observer)return;for(const button of $('sandbox-units').children)button.classList.remove('active');if(game.sandboxEditing){if(!startSandboxBattle(game)){toast('请先给双方布置单位');return;}}else{const setup=game.sandboxSetup;Object.assign(game,new Game('sandbox'));restoreSandboxSetup(game,setup);}sandboxType=null;sandboxLast=null;selected.clear();controlGroups.clear();closeBuild();drag=null;paused=false;acc=0;last=performance.now();sendSnapshot();updateHud();};
+function sandboxPlace(p){const world=renderer.world(p.x,p.y);const unit=placeSandboxUnit(game,sandboxType,world);if(unit){sendSnapshot();updateHud();}return world;}
 function renderMode(){
   const {cursor,hint}=interaction.presentation(observer,STATS[interaction.buildType]?.name);
-  $('game').style.cursor=cursor;$('mode-hint').textContent=hint;
+  $('game').style.cursor=sandboxEditing()&&sandboxType?'crosshair':cursor;$('mode-hint').textContent=sandboxEditing()?(sandboxType?`${STATS[sandboxType].name} · 点击放置 / Shift 移动连续放置`:'框选双方单位 · D 删除'):hint;
 }
 function setAttack(on){
   if(on)interaction.enter('attack');
@@ -90,9 +99,26 @@ $('launch-attack').onclick=()=>{
   sendSnapshot();updateHud();
 };
 $('ai-control').hidden=observer||level!=='balanced';
-function resetHeader(){clearTimeout(headerTimer);document.querySelector('header').classList.remove('compact');}
-function applyLevel(){resetHeader();headerTimer=setTimeout(()=>document.querySelector('header').classList.add('compact'),5000);const info=LEVELS[level],intro=$('mission-intro');$('mission-title').textContent=info.title;$('mission-desc').textContent=info.desc;clearTimeout(missionIntroTimer);intro.classList.remove('hidden');missionIntroTimer=setTimeout(()=>intro.classList.add('hidden'),3000);$('ai-control').hidden=observer||level!=='balanced';}
-function restart(){if(observer||selectingLevel())return;Object.assign(game,new Game(level));closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;aiControl=false;$('ai-control').classList.remove('active');$('ai-control').textContent='AI 控制';game.setPlayerAIControl(false);paused=false;speed=1;acc=0;last=performance.now();state=game.snapshot();renderer.camera=['balanced','attack'].includes(level)?{x:24,y:66,zoom:13}:{x:25,y:32,zoom:13};setAttack(false);applyLevel();sendSnapshot();updateHud();toast('新行动开始');}
+function resetHeader(){
+  clearTimeout(headerTimer);
+  const header=document.querySelector('header');
+  for(const element of header.querySelectorAll('.resources,.view-control,.top-actions'))for(const animation of element.getAnimations())animation.cancel();
+  header.classList.remove('compact');
+}
+function compactHeader(){
+  const header=document.querySelector('header');
+  const elements=[...header.querySelectorAll('.resources,.view-control,.top-actions')];
+  const before=elements.map(element=>element.getBoundingClientRect());
+  header.classList.add('compact');
+  const after=elements.map(element=>element.getBoundingClientRect());
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  elements.forEach((element,index)=>{
+    const dx=before[index].left-after[index].left,dy=before[index].top-after[index].top;
+    element.animate([{transform:'translate('+dx+'px,'+dy+'px)'},{transform:'translate(0,0)'}],{duration:650,easing:'cubic-bezier(.22,1,.36,1)'});
+  });
+}
+function applyLevel(){if(level==='sandbox'){for(const button of $('sandbox-units').children)button.classList.remove('active');view=1;$('perspective').value=1;syncView();}resetHeader();headerTimer=setTimeout(compactHeader,3000);const info=LEVELS[level],intro=$('mission-intro');$('mission-title').textContent=info.title;$('mission-desc').textContent=info.desc;clearTimeout(missionIntroTimer);intro.classList.remove('hidden');missionIntroTimer=setTimeout(()=>intro.classList.add('hidden'),3000);$('ai-control').hidden=observer||level!=='balanced';}
+function restart(){if(observer||selectingLevel())return;Object.assign(game,new Game(level));sandboxType=null;sandboxLast=null;closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;aiControl=false;$('ai-control').classList.remove('active');$('ai-control').textContent='AI 控制';game.setPlayerAIControl(false);paused=false;speed=1;acc=0;last=performance.now();state=game.snapshot();renderer.camera=level==='sandbox'?{x:48,y:32,zoom:Math.max(5,Math.min(renderer.width/96,renderer.height/64)*.9)}:['balanced','attack'].includes(level)?{x:24,y:66,zoom:13}:{x:25,y:32,zoom:13};setAttack(false);applyLevel();sendSnapshot();updateHud();toast('新行动开始');}
 $('restart').onclick=restart;$('again').onclick=restart;
 $('choose-level').onclick=()=>{if(observer)return;$('level-select').hidden=false;resetHeader();acc=0;last=performance.now();closeBuild();drag=null;clearTimeout(missionIntroTimer);clearTimeout(toastTimer);$('toast').classList.remove('visible');sendSnapshot();updateHud();};
 for(const card of document.querySelectorAll('.level-card'))card.onclick=()=>{
@@ -114,6 +140,11 @@ $('base-queue').addEventListener('click',event=>{
 });
 bindInput({
   game,observer,renderer,interaction,$,toast,closeBuild,setAttack,renderMode,updateHud,
+  get sandboxEditing(){return sandboxEditing();},
+  sandboxClick(p){if(!sandboxType)return false;sandboxPlace(p);return true;},
+  sandboxMove(p,shift){if(!shift||!sandboxType){sandboxLast=null;return;}const world=renderer.world(p.x,p.y);if(!sandboxLast){sandboxPlace(p);sandboxLast=world;return;}const distance=Math.hypot(world.x-sandboxLast.x,world.y-sandboxLast.y),count=Math.floor(distance/SANDBOX_SPACING);const origin=sandboxLast;for(let i=1;i<=count;i++){const point={x:origin.x+(world.x-origin.x)*i*SANDBOX_SPACING/distance,y:origin.y+(world.y-origin.y)*i*SANDBOX_SPACING/distance};placeSandboxUnit(game,sandboxType,point);sandboxLast=point;}if(count){sendSnapshot();updateHud();}},
+  sandboxDelete(){deleteSandboxUnits(game,selected);selected.clear();sendSnapshot();updateHud();},
+  sandboxCancel(){selectSandboxType(null);},
   sendSnapshot,previewAt,enterRallyMode,togglePause,settingsPanel,setSettings,controlGroups,
   get selectingLevel(){return selectingLevel();},
   get view(){return view;},
@@ -138,7 +169,7 @@ function updateHud(){
   if(selectingLevel())$('launch-attack').hidden=true;
 }
 // Simulation uses a timer so an observer can remain foreground while the host is hidden.
-setInterval(()=>{const now=performance.now();if(observer&&now-lastHello>=1000){channel.postMessage(receiver.message());lastHello=now;}const elapsed=Math.min((now-last)/1000,1);last=now;if(game){if(!selectingLevel()&&!paused&&!game.result){acc+=elapsed*speed;let steps=0;while(acc>=.05&&steps++<40){game.step(.05);acc-=.05;}for(const event of game.consumeAudioEvents())audio.play(event);}else acc=0;state=game.snapshot();if(now-lastSnapshot>=100){sendSnapshot();lastSnapshot=now;}}else if(now-lastReceived>3000){$('connection').hidden=false;$('connection').textContent=lastReceived?'主窗口未响应，请保持主窗口打开。':'等待主窗口的战局数据…';}if(now-lastHud>=150){updateHud();lastHud=now;}},50);
+setInterval(()=>{const now=performance.now();if(observer&&now-lastHello>=1000){channel.postMessage(receiver.message());lastHello=now;}const elapsed=Math.min((now-last)/1000,1);last=now;if(game){if(!selectingLevel()&&!paused&&!game.result&&!game.sandboxEditing){acc+=elapsed*speed;let steps=0;while(acc>=.05&&steps++<40){game.step(.05);acc-=.05;}for(const event of game.consumeAudioEvents())audio.play(event);}else acc=0;state=game.snapshot();if(now-lastSnapshot>=100){sendSnapshot();lastSnapshot=now;}}else if(now-lastReceived>3000){$('connection').hidden=false;$('connection').textContent=lastReceived?'主窗口未响应，请保持主窗口打开。':'等待主窗口的战局数据…';}if(now-lastHud>=150){updateHud();lastHud=now;}},50);
 const frameInterval=1000/120;
 let lastFrame=null;
 function frame(now){

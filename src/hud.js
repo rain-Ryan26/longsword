@@ -25,9 +25,15 @@ function update({state,selected,view,paused,speed,level,interaction}){
   const botView=view===2;$('bot-resources').hidden=!botView;if(botView){$('bot-food').textContent=Math.floor(state.aiFood);$('bot-ore').textContent=Math.floor(state.aiOre);$('bot-population').textContent=usedPop(state.units,1);}
   const seconds=Math.floor(state.time);$('clock').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
   $('pause-label').textContent=paused?'继续':'暂停';$('pause').querySelector('path').setAttribute('d',paused?'M7 4l13 8-13 8V4Z':'M8 5v14M16 5v14');$('pause').setAttribute('aria-label',paused?'继续':'暂停');$('pause').classList.toggle('active',paused);$('speed-label').textContent=speed+'×';
+  const sandbox=state.level==='sandbox';
+  $('sandbox-panel').hidden=observer||!sandbox||!state.sandboxEditing;
+  $('sandbox-toggle').hidden=observer||!sandbox;
+  $('sandbox-toggle').textContent=state.sandboxEditing?'开始战斗':'回到编辑界面';
+  $('sandbox-population').hidden=!sandbox;
+  $('sandbox-population').textContent=`蓝方人口 ${usedPop(state.units,0)} · 红方人口 ${usedPop(state.units,1)}`;
   const defense=defensePresentation(state,observer);
   $('launch-attack').hidden=!defense.canLaunch;
-  $('defense-status').hidden=!defense.text;$('defense-status').textContent=defense.text;
+  $('defense-status').hidden=sandbox?!state.result:!defense.text;$('defense-status').textContent=sandbox?(state.result==='victory'?'红方全灭，蓝方获胜':state.result==='defeat'?'蓝方全灭，红方获胜':''):defense.text;
   const units=state.units.filter(u=>selected.has(u.id)),counts={};for(const u of units)counts[STATS[u.type].name]=(counts[STATS[u.type].name]||0)+1;
   const label=Object.entries(counts).map(([name,count])=>`${count} ${name}`).join(' · ');
   $('selection-title').textContent=observer?'观察模式':units.length?'已选择部队':'未选择部队';$('selection-count').textContent=units.length;
@@ -62,8 +68,8 @@ function update({state,selected,view,paused,speed,level,interaction}){
   $('building-info').textContent=techMenu?'机械与部队科技均可并行研发；开始即扣除资源。':building?`生命 ${Math.ceil(building.hp)} / ${building.maxHp} · 护甲 ${STATS[building.type].armor} · ${building.awaitingEviction?'等待区域内部队离开，随后自动施工':building.constructionPending?(building.activeBuilders?`施工 ${building.activeBuilders} 人 · 预计剩余 ${Math.ceil(building.constructionRemaining/building.activeBuilders)} 秒`:'等待施工人员到场 · 可选中部队右键补派'):building.type==='base'?`不产资源；${STATS.base.healRange} 格内最多治疗 ${STATS.base.healTargets} 人，每人每秒 +${STATS.base.healRate} 生命。${['attack','defend','demo'].includes(state.level)?`本关固定 ${state.popCap} 人口。`:`提供 ${STATS.base.pop} 人口。`}按 Y 设置集结点${building.rallyPoint?` · 当前 ${building.rallyPoint.x.toFixed(1)}, ${building.rallyPoint.y.toFixed(1)}`:''}。`:building.type==='machineFactory'?`生产机械单位。按 Y 设置集结点${building.rallyPoint?` · 当前 ${building.rallyPoint.x.toFixed(1)}, ${building.rallyPoint.y.toFixed(1)}`:''}。`:building.type==='mine'?'每秒 +5 矿产':building.type==='factory'?`每秒 +${foodRate(state.map,building)===6?'6 食物（食物点 ×2）':'3 食物'}`:`入驻 ${state.units.filter(u=>u.hp>0&&u.garrisonId===building.id).length}/4 人 · E 全部退出 · 自带弓箭兵 · 视野 ${STATS.tower.vision} / 射程 ${STATS.tower.range}`}`:buildType?`左键放置${STATS[buildType].name}，绿色可建 / 红色不可建。`:'C 基地 / R 采矿场 / Q 哨塔 / F 食物厂 / M 机械工厂。';
   if(building){$('selection-title').textContent=STATS[building.type].name;$('selection-count').textContent='1';$('selection-info').textContent='侧栏面板可拆除建筑。';}
   for(const type of BUILDING_TYPES)$('build-'+type).disabled=!!state.result||state.food<STATS[type].food||state.ore<STATS[type].ore;
-  $('result').hidden=!state.result;if(state.result){
-    const copy={balanced:['敌建筑全毁','敌方全部建筑已摧毁，均衡对抗胜利。','保护经济建筑，集结部队后再出击。'],demo:['敌营已摧毁','两座敌营已摧毁，本次行动胜利。','调整阵型，保护弓箭兵，再试一次。'],attack:['敌建筑全毁','敌方建筑全部摧毁，进攻胜利。','敌军防守严密，尝试先削弱其经济或集火逐个击破。'],defend:['防线守住了','两波敌军已全部消灭，我方仍有建筑存活。','防线被突破，试试哨塔与弓箭兵配合。']}[state.level||level];
+  $('result').hidden=!state.result||sandbox;if(state.result){
+    const copy={sandbox:['红方全灭','蓝方获胜，可回到编辑调整布阵。','蓝方全灭，可回到编辑调整布阵。'],balanced:['敌建筑全毁','敌方全部建筑已摧毁，均衡对抗胜利。','保护经济建筑，集结部队后再出击。'],demo:['敌营已摧毁','两座敌营已摧毁，本次行动胜利。','调整阵型，保护弓箭兵，再试一次。'],attack:['敌建筑全毁','敌方建筑全部摧毁，进攻胜利。','敌军防守严密，尝试先削弱其经济或集火逐个击破。'],defend:['防线守住了','两波敌军已全部消灭，我方仍有建筑存活。','防线被突破，试试哨塔与弓箭兵配合。']}[state.level||level];
     $('result-title').textContent=state.result==='victory'?copy[0]:(['defend','balanced'].includes(state.level)?'我方建筑全毁':'基地已失守');$('result-copy').textContent=state.result==='victory'?copy[1]:copy[2];}
 }
   return {update};

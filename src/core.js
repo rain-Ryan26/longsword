@@ -13,7 +13,7 @@ import {DefendAI,AssaultAI,BalancedAI} from './ai.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 export class Game{
   constructor(level='demo'){
-    this.level=level;this.defense=null;
+    this.level=level;this.defense=null;this.sandboxEditing=false;this.sandboxSetup=[];
     this.vision=new VisionSystem();
     this.map=createLevelMap(level);
     this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.audioEvents=[];this.time=0;this.nextId=1;
@@ -26,7 +26,7 @@ export class Game{
     if(level==='balanced'){this.aiFood=500;this.aiOre=500;}
     this.density=new Float32Array(this.map.width*this.map.height);
     this.setupLevel();
-    this.ai=level==='balanced'?new BalancedAI():level==='attack'?new DefendAI():level==='defend'?new AssaultAI():null;
+    this.ai=level==='balanced'?new BalancedAI():level==='attack'?new DefendAI():['defend','sandbox'].includes(level)?new AssaultAI():null;
     this.playerAI=level==='balanced'?new BalancedAI(0):null;
     this.playerAIControl=false;
     this.updateVision();
@@ -50,7 +50,7 @@ export class Game{
   detectionRange(e){return this.isFlying(e)||!('visionGround' in STATS[e.type])?STATS[e.type].vision:STATS[e.type].visionGround;}
   movementSpeed(u){if(STATS[u.type].air)return this.isFlying(u)?STATS[u.type].speed:0;return STATS[u.type].speed*(MOVEMENT_MULTIPLIERS[this.map.terrain[this.cellIndex(u.x,u.y)]]??1);}
   // 分别返回是否避让山地、森林；BOT 默认可穿森林，单位在慢速地形中时先允许走出。
-  terrainAvoidance(u){return this.isFlying(u)||this.map.terrain[this.cellIndex(u.x,u.y)]!==0?[false,false]:[!u.allowMountains,!(u.allowForests||u.team===1)];}
+  terrainAvoidance(u){return this.isFlying(u)||this.map.terrain[this.cellIndex(u.x,u.y)]!==0?[false,false]:[!!STATS[u.type].noMountains||!u.allowMountains,!(u.allowForests||u.team===1)];}
   isFlying(u){return !!STATS[u.type].air&&u.flying!==false;}
   canEngage(u,e){if(u.garrisonId||e.garrisonId)return false;if(STATS[u.type].airOnly)return this.isFlying(u)&&this.isFlying(e);return !this.isFlying(e)||this.isFlying(u)||!!STATS[u.type].antiAir;}
   toggleFlight(ids,point){
@@ -79,7 +79,7 @@ export class Game{
     if(!this.density||this.density.length!==size)this.density=new Float32Array(size);else this.density.fill(0);
     for(const u of this.units)if(u.hp>0&&!u.garrisonId&&!this.isFlying(u))this.density[this.cellIndex(u.x,u.y)]++;
   }
-  updateVision(){this.vision.update(this);}
+  updateVision(){this.vision.update(this);if(this.level==='sandbox'){for(const cells of [...this.visible,...this.explored])cells.fill(1);}}
   // 残影：离开视野后保留最后一次看到的敌方实体快照；建筑永久保留，部队 60 秒淡化。
   updateGhosts(){
     const livingBuildings=new Set(this.buildings.filter(b=>b.hp>0).map(b=>b.id));
@@ -285,7 +285,7 @@ export class Game{
     }
   }
   step(dt){
-    if(this.result)return;
+    if(this.result||this.sandboxEditing)return;
     this.revision++;
     this.time+=dt;
     this.stepTechnologies(dt);
@@ -392,6 +392,10 @@ export class Game{
     this.units=this.units.filter(u=>u.hp>0);
   }
   updateResult(){
+    if(this.level==='sandbox'){
+      if(!this.sandboxEditing){if(!this.units.some(u=>u.team===0&&u.hp>0))this.result='defeat';else if(!this.units.some(u=>u.team===1&&u.hp>0))this.result='victory';}
+      return;
+    }
     const primary=b=>this.buildings.find(x=>x.team===b&&x.primary);
     if(this.level==='defend'){
       if(!this.buildings.some(b=>b.team===0&&b.hp>0))this.result='defeat';
@@ -424,5 +428,5 @@ export class Game{
     }
     return best;
   }
-  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,level:this.level,defense:this.defense?{...this.defense,sizes:[...this.defense.sizes]}:null,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,aiFood:this.aiFood,aiOre:this.aiOre,popCap:this.popCap(),queue:this.queue,technologies:this.technologies,result:this.result,visible:this.visible,explored:this.explored,ghosts:[0,1].map(t=>({buildings:[...this.ghosts[t].buildings.values()],units:[...this.ghosts[t].units.values()]}))};}
+  snapshot(){return {revision:this.revision,visionVersion:this.visionVersion,level:this.level,sandboxEditing:!!this.sandboxEditing,defense:this.defense?{...this.defense,sizes:[...this.defense.sizes]}:null,map:this.map,units:this.units,buildings:this.buildings,projectiles:this.projectiles,effects:this.effects,time:this.time,food:this.food,ore:this.ore,aiFood:this.aiFood,aiOre:this.aiOre,popCap:this.popCap(),queue:this.queue,technologies:this.technologies,result:this.result,visible:this.visible,explored:this.explored,ghosts:[0,1].map(t=>({buildings:[...this.ghosts[t].buildings.values()],units:[...this.ghosts[t].units.values()]}))};}
 }

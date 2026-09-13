@@ -75,7 +75,14 @@ export class DefendAI{
 // 两波总攻：准备后出动，清场后休整；目标被毁后转攻剩余建筑。
 export class AssaultAI{
   constructor(){this.targetId=null;}
-  update(game){
+  update(game,dt=.05){
+    if(game.level==='sandbox'){
+      this.timer=(this.timer||0)-dt;if(this.timer>0)return;this.timer=2;
+      const target=game.units.find(u=>u.team===0&&u.hp>0);
+      const army=game.units.filter(u=>u.team===1&&u.hp>0);
+      if(target&&army.length)game.command(army.map(u=>u.id),'attack',target,null,false,false,1);
+      return;
+    }
     const state=game.defense;
     let army=game.units.filter(u=>u.team===1&&u.hp>0),launched=false;
     if(state.wave===0&&game.time>=state.nextWaveAt){

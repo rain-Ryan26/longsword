@@ -40,6 +40,7 @@ export function bindInput(ctx){
     else if(e.button===0)onPrimaryClick(e,p);
   }
   function onRightClick(e,p){
+    if(ctx.sandboxEditing){ctx.sandboxCancel();return;}
     e.preventDefault();
     if(interaction.buildMenu||interaction.buildType||interaction.rallyBaseId){
       closeBuild();updateHud();return;
@@ -57,6 +58,7 @@ export function bindInput(ctx){
     ctx.lastRightClick=!e.shiftKey&&inMap&&!doubleClick?{x:p.x,y:p.y,time:now,flyingIds:flyingBefore}:null;
   }
   function onPrimaryClick(e,p){
+    if(ctx.sandboxEditing&&ctx.sandboxClick(p))return;
     if(interaction.rallyBaseId){
       const error=game.setRallyPoint(interaction.rallyBaseId,renderer.world(p.x,p.y));
       toast(error||'集结点已设置');
@@ -75,10 +77,10 @@ export function bindInput(ctx){
     canvas.setPointerCapture(e.pointerId);
   }
   canvas.addEventListener('pointerdown',onPointerDown);
-  canvas.addEventListener('pointermove',e=>{if(interaction.buildType&&game)previewAt(local(e));if(!ctx.drag)return;const p=local(e);ctx.drag.x=p.x;ctx.drag.y=p.y;if(ctx.drag.kind==='pan'){renderer.camera.x=ctx.drag.cx-(p.x-ctx.drag.sx)/renderer.camera.zoom;renderer.camera.y=ctx.drag.cy-(p.y-ctx.drag.sy)/renderer.camera.zoom;renderer.clamp();}});
+  canvas.addEventListener('pointermove',e=>{if(ctx.sandboxEditing&&!ctx.drag)ctx.sandboxMove(local(e),e.shiftKey);if(interaction.buildType&&game)previewAt(local(e));if(!ctx.drag)return;const p=local(e);ctx.drag.x=p.x;ctx.drag.y=p.y;if(ctx.drag.kind==='pan'){renderer.camera.x=ctx.drag.cx-(p.x-ctx.drag.sx)/renderer.camera.zoom;renderer.camera.y=ctx.drag.cy-(p.y-ctx.drag.sy)/renderer.camera.zoom;renderer.clamp();}});
   canvas.addEventListener('pointerup',e=>{if(!ctx.drag)return;if(ctx.drag.kind==='select'){
     closeBuild();if(!ctx.drag.shift)ctx.selected.clear();const click=Math.hypot(ctx.drag.x-ctx.drag.sx,ctx.drag.y-ctx.drag.sy)<5;
-    const choices=ctx.state.units.filter(u=>u.team===0&&u.hp>0&&!u.garrisonId&&visibleToView(u));
+    const choices=ctx.state.units.filter(u=>(ctx.sandboxEditing||u.team===0)&&u.hp>0&&!u.garrisonId&&visibleToView(u));
     if(click){
       const p=renderer.world(ctx.drag.x,ctx.drag.y);
       const u=nearestEntity(choices,p);
@@ -111,6 +113,7 @@ export function bindInput(ctx){
     if(ctx.selectingLevel)return;
     if(e.target.matches('input, textarea, select')||e.target.isContentEditable)return;
     const key=e.key.toLowerCase();
+    if(ctx.sandboxEditing&&!observer){if(key==='d'){e.preventDefault();ctx.sandboxDelete();return;}if(key==='escape'){ctx.sandboxCancel();ctx.drag=null;return;}if(![' '].includes(key))return;}
     if(/^[0-9]$/.test(key)&&!e.altKey&&!e.metaKey&&!e.shiftKey){
       e.preventDefault();
       if(observer||e.repeat)return;
@@ -154,5 +157,7 @@ export function bindInput(ctx){
     if(key==='a'){e.preventDefault();if(ctx.selected.size)setAttack(true);else toast('请先选择部队');}
     if(key==='s'){e.preventDefault();stop();}
   });
+  window.addEventListener('keyup',e=>{if(e.key==='Shift'&&ctx.sandboxEditing)ctx.sandboxMove({x:0,y:0},false);});
+  canvas.addEventListener('pointerleave',()=>{if(ctx.sandboxEditing)ctx.sandboxMove({x:0,y:0},false);});
   window.addEventListener('blur',()=>{ctx.drag=null;ctx.lastUnitClick=null;ctx.lastRightClick=null;});
 }
