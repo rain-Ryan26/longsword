@@ -55,7 +55,7 @@ export function trainingPlan(state,type,producerId=null,team=0){
 }
 
 export function foodRate(map,building){
-  return (map.foodPoints||[]).some(node=>coversCell(building,node))?6:3;
+  return (map.foodPoints||[]).some(node=>coversCell(building,node))?5:2;
 }
 
 const ARMY_TYPES=new Set(['shield','ironShield','archer','crossbow','armoredCar','steamWalker']);

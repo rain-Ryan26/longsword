@@ -21,9 +21,9 @@ export const STATS = {
   wilddog:{name:'野狗',hp:55,armor:0,damage:9,cooldown:.5,range:1.5,speed:2.75,vision:10,food:30,ore:0,trainTime:2,movable:true,air:false},
   pigeon:{name:'信鸽',hp:40,armor:0,damage:4,cooldown:.8,range:1.5,speed:5,vision:15,visionGround:5,food:60,ore:0,trainTime:2,movable:true,air:true,airOnly:true,minTurnRadius:2,orbitRadius:4},
   base:{name:'前线基地',hp:2000,armor:5,vision:10,food:300,ore:400,buildTime:240,maxBuilders:6,healRange:6,healRate:2,healTargets:5,pop:40},
-  mine:{name:'采矿场',hp:1000,armor:5,vision:10,food:100,ore:200,buildTime:180,halfSize:1.5},
+  mine:{name:'采矿场',hp:1000,armor:5,vision:10,food:200,ore:200,buildTime:180,halfSize:1.5},
   tower:{name:'哨塔',hp:600,armor:5,vision:10*1.3,range:7+1,damage:15,cooldown:1.2,food:150,ore:150,buildTime:45,maxBuilders:2,halfSize:1,antiAir:true,antiAirRange:2+4},
-  factory:{name:'食物厂',hp:1000,armor:5,vision:10,food:100,ore:200,buildTime:180,halfSize:1.5},
+  factory:{name:'食物厂',hp:1000,armor:5,vision:10,food:200,ore:200,buildTime:180,halfSize:1.5},
   machineFactory:{name:'机械工厂',hp:1200,armor:5,vision:10,food:300,ore:400,buildTime:480,maxBuilders:8},
 };
 export const popOf=t=>STATS[t].pop||1;

@@ -71,7 +71,7 @@ export class Renderer{
         if(b.id===selectedBuilding){c.strokeStyle='#e0ebac';c.lineWidth=.15;c.strokeRect(-2,-2,4,4);}
         this.bar(c,0,-1.8,2.7,b.hp/b.maxHp,b.team);
         c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;
-        c.fillText(b.awaitingEviction?'食物厂 · 等待部队离开':b.constructionPending?(b.activeBuilders?`食物厂 · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:'食物厂 · 等待施工'):(state.map.foodPoints||[]).some(n=>coversCell(b,n))?'食物厂 ×2':'食物厂',0,b.constructionPending?1.8:2.8);
+        c.fillText(b.awaitingEviction?'食物厂 · 等待部队离开':b.constructionPending?(b.activeBuilders?`食物厂 · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:'食物厂 · 等待施工'):(state.map.foodPoints||[]).some(n=>coversCell(b,n))?'食物厂 资源充足':'食物厂',0,b.constructionPending?1.8:2.8);
         c.restore();continue;
       }
       if(b.type==='tower'){
