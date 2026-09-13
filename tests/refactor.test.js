@@ -249,6 +249,16 @@ test('提取后的输入处理覆盖选择、编队、取消、暂停及观察�
     assert.equal(delayed.order,'build');assert.equal(ctx.selected.has(delayed.id),false);
     ctx.selected.add(delayed.id);game.stepBuildings(0);
     assert.equal(ctx.selected.has(delayed.id),true);
+    // 预定建筑立即取消实际派遣部队的选中；失败和未派遣信鸽保持选择。
+    const planned=game.addUnit('shield',0,60,40),bird=game.addUnit('pigeon',0,60,42);
+    ctx.selected=new Set([planned.id,bird.id]);game.visible[0].fill(0);
+    interaction.enter('place',{type:'tower'});
+    const planClick=()=>handlers.get('game:pointerdown')({button:0,clientX:70,clientY:40,pointerId:1});
+    const planOre=game.ore;game.ore=0;planClick();assert.equal(ctx.selected.size,2);
+    game.ore=planOre;planClick();
+    assert.ok(game.buildPlans.some(p=>p.ids.includes(planned.id)));
+    assert.equal(ctx.selected.has(planned.id),false);assert.equal(ctx.selected.has(bird.id),true);
+    game.visible[0].fill(1);
     // 右键完工哨塔入驻；驻兵不被 F2 选中；选塔 E 退出。
     const shelter=game.addBuilding('tower',0,50,26),resident=game.addUnit('shield',0,48.5,26.5);
     ctx.selected=new Set([resident.id]);ctx.lastRightClick=null;interaction.enter('select');

@@ -1,6 +1,6 @@
 import {defensePresentation} from './defense.js';
 import {STATS,TECHNOLOGIES,usedPop} from './data.js';
-import {TRAIN_QUEUE_LIMIT,TRAINABLE_TYPES,BUILDING_TYPES,productionType,trainingPlan,researchError,foodRate} from './rules.js';
+import {TRAIN_QUEUE_LIMIT,TRAINABLE_TYPES,BUILDING_TYPES,productionType,trainingPlan,researchError,foodRate,towerGarrisonType} from './rules.js';
 const UNIT_ICONS={shield:'🛡',ironShield:'🛡️',archer:'🏹',crossbow:'🎯',armoredCar:'',steamWalker:'',wilddog:'🐕',pigeon:'🕊'};
 export function createHud({$,observer,renderer}){
 function renderTrainingQueue(queue,state){
@@ -58,6 +58,11 @@ function update({state,selected,view,paused,speed,level,interaction}){
   const shieldType=productionType('shield',state.technologies),archerType=productionType('archer',state.technologies);
   $('base-train-shield').querySelector('span:last-child').textContent=`训练${STATS[shieldType].name} · ${STATS.shield.food} 食物 / ${STATS.shield.ore} 矿`;
   $('base-train-archer').querySelector('span:last-child').textContent=`训练${STATS[archerType].name} · ${STATS.archer.food} 食物 / ${STATS.archer.ore} 矿`;
+  const money=t=>STATS[t].ore?`${STATS[t].food} 食物 / ${STATS[t].ore} 矿`:`${STATS[t].food} 食物`;
+  $('base-train-wilddog').querySelector('span:last-child').textContent=`训练${STATS.wilddog.name} · ${money('wilddog')}`;
+  $('base-train-pigeon').querySelector('span:last-child').textContent=`训练${STATS.pigeon.name} · ${money('pigeon')}`;
+  $('base-train-armoredCar').querySelector('span:last-child').textContent=`生产${STATS.armoredCar.name} · ${money('armoredCar')} · ${STATS.armoredCar.trainTime} 秒`;
+  $('base-train-steamWalker').querySelector('span:last-child').textContent=`生产${STATS.steamWalker.name} · ${money('steamWalker')} · ${STATS.steamWalker.trainTime} 秒`;
   for(const [id,s] of Object.entries(TECHNOLOGIES)){
     const tech=state.technologies[id],button=$('research-'+id),status=tech.status==='complete'?'已完成':tech.status==='researching'?`研发中 · ${Math.ceil(tech.remaining)} 秒`:`${s.food} 食物 / ${s.ore} 矿 · ${s.researchTime} 秒`;
     const unlock={castIron:'解锁装甲车',artillery:'蒸汽步行机前置',steamCore:'蒸汽步行机前置',compositeShield:'盾兵升级为铁盾兵',precisionBolts:'弓箭兵升级为强弩兵'}[id];
@@ -65,7 +70,7 @@ function update({state,selected,view,paused,speed,level,interaction}){
   }
 
   $('building-title').textContent=techMenu?'科技研发 · R':building?STATS[building.type].name:'建造菜单 · B';
-  $('building-info').textContent=techMenu?'机械与部队科技均可并行研发；开始即扣除资源。':building?`生命 ${Math.ceil(building.hp)} / ${building.maxHp} · 护甲 ${STATS[building.type].armor} · ${building.awaitingEviction?'等待区域内部队离开，随后自动施工':building.constructionPending?(building.activeBuilders?`施工 ${building.activeBuilders} 人 · 预计剩余 ${Math.ceil(building.constructionRemaining/building.activeBuilders)} 秒`:'等待施工人员到场 · 可选中部队右键补派'):building.type==='base'?`不产资源；${STATS.base.healRange} 格内最多治疗 ${STATS.base.healTargets} 人，每人每秒 +${STATS.base.healRate} 生命。${['attack','defend','demo'].includes(state.level)?`本关固定 ${state.popCap} 人口。`:`提供 ${STATS.base.pop} 人口。`}按 Y 设置集结点${building.rallyPoint?` · 当前 ${building.rallyPoint.x.toFixed(1)}, ${building.rallyPoint.y.toFixed(1)}`:''}。`:building.type==='machineFactory'?`生产机械单位。按 Y 设置集结点${building.rallyPoint?` · 当前 ${building.rallyPoint.x.toFixed(1)}, ${building.rallyPoint.y.toFixed(1)}`:''}。`:building.type==='mine'?'每秒 +5 矿产':building.type==='factory'?`每秒 +${foodRate(state.map,building)===6?'6 食物（食物点 ×2）':'3 食物'}`:`入驻 ${state.units.filter(u=>u.hp>0&&u.garrisonId===building.id).length}/4 人 · E 全部退出 · 自带弓箭兵 · 视野 ${STATS.tower.vision} / 射程 ${STATS.tower.range}`}`:buildType?`左键放置${STATS[buildType].name}，绿色可建 / 红色不可建。`:'C 基地 / R 采矿场 / Q 哨塔 / F 食物厂 / M 机械工厂。';
+  $('building-info').textContent=techMenu?'机械与部队科技均可并行研发；开始即扣除资源。':building?`生命 ${Math.ceil(building.hp)} / ${building.maxHp} · 护甲 ${STATS[building.type].armor} · ${building.awaitingEviction?'等待区域内部队离开，随后自动施工':building.constructionPending?(building.activeBuilders?`施工 ${building.activeBuilders} 人 · 预计剩余 ${Math.ceil(building.constructionRemaining/building.activeBuilders)} 秒`:'等待施工人员到场 · 可选中部队右键补派'):building.type==='base'?`不产资源；${STATS.base.healRange} 格内最多治疗 ${STATS.base.healTargets} 人，每人每秒 +${STATS.base.healRate} 生命。${['attack','defend','demo'].includes(state.level)?`本关固定 ${state.popCap} 人口。`:`提供 ${STATS.base.pop} 人口。`}按 Y 设置集结点${building.rallyPoint?` · 当前 ${building.rallyPoint.x.toFixed(1)}, ${building.rallyPoint.y.toFixed(1)}`:''}。`:building.type==='machineFactory'?`生产机械单位。按 Y 设置集结点${building.rallyPoint?` · 当前 ${building.rallyPoint.x.toFixed(1)}, ${building.rallyPoint.y.toFixed(1)}`:''}。`:building.type==='mine'?'每秒 +5 矿产':building.type==='factory'?`每秒 +${foodRate(state.map,building)===6?'6 食物（食物点 ×2）':'3 食物'}`:`入驻 ${1+state.units.filter(u=>u.hp>0&&u.garrisonId===building.id).length}/4 人 · E 全部退出 · 自带 1 名${STATS[towerGarrisonType(state,building.team)].name} · 视野 ${STATS.tower.vision} / 射程 ${STATS.tower.range}`}`:buildType?`左键放置${STATS[buildType].name}，绿色可建 / 红色不可建。`:'C 基地 / R 采矿场 / Q 哨塔 / F 食物厂 / M 机械工厂。';
   if(building){$('selection-title').textContent=STATS[building.type].name;$('selection-count').textContent='1';$('selection-info').textContent='侧栏面板可拆除建筑。';}
   for(const type of BUILDING_TYPES)$('build-'+type).disabled=!!state.result||state.food<STATS[type].food||state.ore<STATS[type].ore;
   $('result').hidden=!state.result||sandbox;if(state.result){

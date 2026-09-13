@@ -16,8 +16,8 @@ export function enterTower(game,ids,id,team=0){
   if(game.result)return '战局已结束';
   const b=towerFor(game,id,team);
   if(!b)return '请选择己方已完工哨塔';
-  let available=GARRISON_LIMIT-occupants(game,id).length-game.units.filter(u=>u.hp>0&&u.garrisonTarget===id).length;
-  if(available<=0)return '哨塔入驻名额已满（最多 4 人）';
+  let available=GARRISON_LIMIT-1-occupants(game,id).length-game.units.filter(u=>u.hp>0&&u.garrisonTarget===id).length;
+  if(available<=0)return '哨塔入驻名额已满（共 4 人，含自带驻兵 1 人）';
   let dispatched=0;
   for(const u of game.units.filter(u=>ids.includes(u.id)&&u.team===team&&u.hp>0&&!u.garrisonId&&!u.garrisonTarget&&!STATS[u.type].air&&!STATS[u.type].machine&&STATS[u.type].movable!==false).sort((a,c)=>distance(a,b)-distance(c,b))){
     if(!available)break;
@@ -38,7 +38,7 @@ export function stepGarrison(game,u,dt){
     if(u.repath<=0||!u.path.length){u.path=game.pathFor(u,u.goal);u.repath=1;}
     game.move(u,game.movementSpeed(u)*dt);return;
   }
-  if(occupants(game,b.id).length>=GARRISON_LIMIT){u.garrisonTarget=null;game.releaseBuilder(u);return;}
+  if(occupants(game,b.id).length>=GARRISON_LIMIT-1){u.garrisonTarget=null;game.releaseBuilder(u);return;}
   game.releaseBuilder(u);u.garrisonTarget=null;u.garrisonId=b.id;u.x=b.x;u.y=b.y;u.targetId=null;
   game.revision++;
 }

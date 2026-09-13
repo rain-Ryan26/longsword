@@ -1,10 +1,14 @@
 import {NearbyIndex} from './queries.js';
 import {isArmyUnit} from './rules.js';
 import {coversCell} from './pathfinding.js';
-import {STATS} from './data.js';
+import {STATS,usedPop} from './data.js';
 // 进攻关卡用联防 AI，防守关卡用两波总攻 AI。
 // AI 只通过 game 提供的公开接口下达指令，不读取玩家视野。
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const ECONOMY_RESERVE={
+  food:STATS.base.food+6*STATS.shield.food+4*STATS.archer.food,
+  ore:STATS.base.ore+6*STATS.shield.ore+4*STATS.archer.ore,
+};
 
 // 据点联防：仅根据本方可见敌军及受袭信息出动，保留驻军。
 export class DefendAI{
@@ -109,7 +113,7 @@ export class AssaultAI{
 }
 
 export class BalancedAI{
-  constructor(team=1){this.team=team;this.timer=0;this.attacking=false;this.knownBuildings=new Map();this.sweep=0;}
+  constructor(team=1){this.team=team;this.timer=0;this.attacking=false;this.knownBuildings=new Map();this.sweep=0;this.economicWorkers=new Set();}
   foodOf(game){return game[this.team===0?'food':'aiFood'];}
   oreOf(game){return game[this.team===0?'ore':'aiOre'];}
   queueOf(game){return game[this.team===0?'queue':'aiQueue'];}
@@ -117,8 +121,9 @@ export class BalancedAI{
     this.timer-=dt;if(this.timer>0)return;this.timer=3;
     const context=this.collectSituation(game);
     if(!context)return;
+    const reserve=this.updateEconomy(game,context);
     const military=this.updateMilitary(game,context);
-    this.updateEconomy(game,{...context,...military});
+    this.updateTraining(game,{...context,...military},reserve);
   }
   collectSituation(game){
     const t=this.team;
@@ -141,7 +146,7 @@ export class BalancedAI{
     const threat=visible.filter(e=>(!e.building||STATS[e.type].damage)&&(
       own.some(b=>distance(b,e)<16)||army.some(u=>distance(u,e)<10)
     )).sort((a,b)=>distance(a,base)-distance(b,base))[0];
-    const main=army.filter(u=>u.order!=='build'&&u.leavingId==null);
+    const main=army.filter(u=>u.order!=='build'&&u.leavingId==null&&u.buildPlanId==null&&!u.garrisonId&&!this.economicWorkers.has(u.id));
     if(main.length<20)this.attacking=false;
     if(main.length>=45)this.attacking=true;
     let target=rally,mode='defend';
@@ -160,32 +165,68 @@ export class BalancedAI{
 
     return {main,threat};
   }
-  updateEconomy(game,{t,own,base,units,army,main,threat}){
-    // 平稳时派足四人；局部接敌保留更多主力，基地告急才暂停扩张。
-    const recovering=['base','mine','factory'].some(type=>!own.some(b=>b.type===type));
-    const workerCount=Math.min(4,recovering?main.length:Math.max(0,main.length-(threat?10:6)));
-    const workersAt=point=>[...main].sort((a,b)=>distance(a,point)-distance(b,point)).slice(0,workerCount).map(u=>u.id);
+  updateEconomy(game,{t,own,base,units,army,visible}){
+    this.economicWorkers.clear();
+    const sites=own.filter(b=>b.constructionPending);
+    // 清场尚未派工的人员和预建造人员也属于建设任务，不能被军事指令抢走。
+    for(const site of sites)if(site.awaitingEviction)for(const id of site.builderIds||[])this.economicWorkers.add(id);
+    for(const u of units)if(u.order==='build'||u.buildPlanId!=null)this.economicWorkers.add(u.id);
     const homeDanger=!this.safeSite(game,base,t);
-    const site=own.find(b=>b.constructionPending);
-    let job=null;
-    if(site){
+    if(homeDanger)return null;
+    const localThreat=visible.some(e=>STATS[e.type].damage&&own.some(b=>distance(b,e)<16));
+    const recovering=['base','mine','factory'].some(type=>!own.some(b=>b.type===type));
+    const workerLimit=Math.min(12,Math.max(4,Math.floor(army.length/4)),Math.max(0,army.length-(recovering?0:localThreat?10:6)));
+    const workersAt=(point,count=4)=>{
+      const available=army.filter(u=>!this.economicWorkers.has(u.id)&&u.order!=='build'&&u.leavingId==null&&!u.garrisonId&&u.buildPlanId==null);
+      const occupied=army.filter(u=>this.economicWorkers.has(u.id)).length;
+      return available.sort((a,b)=>distance(a,point)-distance(b,point)).slice(0,Math.max(0,Math.min(count,workerLimit-occupied))).map(u=>u.id);
+    };
+    const protectWorkers=()=>{
+      for(const u of units)if(u.order==='build'||u.buildPlanId!=null)this.economicWorkers.add(u.id);
+    };
+    // 每个安全工地都补工，之后仍可新开其他任务。
+    for(const site of sites.filter(b=>this.safeSite(game,b,t))){
       const assigned=units.filter(u=>u.buildingId===site.id&&u.order==='build').length;
-      if(!site.awaitingEviction&&assigned<4&&workerCount&&!homeDanger&&this.safeSite(game,site,t)){
-        game.dispatchBuilders(site,game.builderAssignments(workersAt(site),site));
-      }
-    }else if(!homeDanger&&workerCount){
-      job=this.planBuilding(game,own,units,base);
-      if(job&&this.foodOf(game)>=STATS[job.type].food&&this.oreOf(game)>=STATS[job.type].ore){
-        if(!game.build(workersAt(job),job.type,job,t))job=null;
+      const missing=Math.min(4,STATS[site.type].maxBuilders||4)-assigned;
+      if(!site.awaitingEviction&&missing>0){
+        game.dispatchBuilders(site,game.builderAssignments(workersAt(site,missing),site));
+        protectWorkers();
       }
     }
-    if(this.queueOf(game).length>=2)return;
-    const dogs=units.filter(u=>u.type==='wilddog').length+this.queueOf(game).filter(q=>q.type==='wilddog').length;
-    const archers=army.filter(u=>u.type==='archer'||u.type==='crossbow'||u.type==='armoredCar'||u.type==='steamWalker').length;
-    const type=dogs<2&&!threat?'wilddog':archers<army.length*.4?'archer':'shield';
-    // 防守告急时可花建设预留；平时先为下一座经济建筑积累资源。
-    const reserve=job&&!homeDanger?STATS[job.type]:{food:0,ore:0};
-    if(this.foodOf(game)>=STATS[type].food+reserve.food&&this.oreOf(game)>=STATS[type].ore+reserve.ore)game.enqueueTraining(type,null,t);
+    const plans=game.buildPlans.filter(p=>p.team===t);
+    for(let slot=sites.length+plans.length;slot<3;slot++){
+      // 已开工建筑立刻参与下一次需求判断、占地和预计产能计算。
+      const current=game.buildings.filter(b=>b.team===t&&b.hp>0).concat(plans.map(p=>({...p,constructionPending:true})));
+      const job=this.planBuilding(game,current,units,base);
+      const reserve=job?STATS[job.type]:this.foodShortage(game,current)?STATS.factory:null;
+      if(!job)return reserve;
+      const workers=workersAt(job);
+      if(workers.length<(recovering?1:2))return null;
+      if(this.foodOf(game)<STATS[job.type].food||this.oreOf(game)<STATS[job.type].ore){
+        for(const id of workers)this.economicWorkers.add(id);
+        const waiting=units.filter(u=>workers.includes(u.id)&&(!u.goal||distance(u.goal,job)>3));
+        if(waiting.length)game.command(waiting.map(u=>u.id),'move',job,null,false,false,t);
+        return reserve;
+      }
+      if(game.build(workers,job.type,job,t))return reserve;
+      protectWorkers();
+      const site=game.buildings.at(-1);
+      if(site.awaitingEviction)for(const id of site.builderIds||[])this.economicWorkers.add(id);
+    }
+    return null;
+  }
+  updateTraining(game,{t,units,army,threat},budget){
+    const reserve=budget||{food:0,ore:0};
+    for(const base of game.buildings.filter(b=>b.team===t&&b.hp>0&&b.type==='base'&&!b.constructionPending)){
+      while(this.queueOf(game).filter(q=>q.baseId===base.id).length<2){
+        const queue=this.queueOf(game);
+        const dogs=units.filter(u=>u.type==='wilddog').length+queue.filter(q=>q.type==='wilddog').length;
+        const archers=army.filter(u=>['archer','crossbow','armoredCar','steamWalker'].includes(u.type)).length+queue.filter(q=>q.type==='archer').length;
+        const type=dogs<2&&!threat?'wilddog':archers<(army.length+queue.filter(q=>isArmyUnit(q)).length)*.4?'archer':'shield';
+        if(this.foodOf(game)<STATS[type].food+reserve.food||this.oreOf(game)<STATS[type].ore+reserve.ore)return;
+        if(game.enqueueTraining(type,base.id,t))break;
+      }
+    }
   }
   orderGroup(game,units,mode,target){
     const key=`${mode}:${Math.round(target.x/5)}:${Math.round(target.y/5)}`;
@@ -197,7 +238,7 @@ export class BalancedAI{
   scout(game,dogs,enemies,rally){
     const nodes=[...game.map.resources].sort((a,b)=>distance(a,rally)-distance(b,rally));
     dogs.forEach((u,i)=>{
-      if(u.order==='build'||u.leavingId!=null)return;
+      if(u.order==='build'||u.leavingId!=null||u.buildPlanId!=null||u.garrisonId)return;
       u.role='scout';
       if(enemies.some(e=>!e.building&&distance(u,e)<8)){
         if(!u.goal||distance(u.goal,rally)>3)game.command([u.id],'move',rally,null,false,false,this.team);
@@ -211,14 +252,16 @@ export class BalancedAI{
   }
   economicPriority(game){
     // 以 6 盾 + 4 弓的一批补员和下一座基地作为储备标尺，比较两种资源的相对短缺。
-    const foodNeed=STATS.base.food+6*STATS.shield.food+4*STATS.archer.food;
-    const oreNeed=STATS.base.ore+6*STATS.shield.ore+4*STATS.archer.ore;
-    return this.foodOf(game)/foodNeed<=this.oreOf(game)/oreNeed?'factory':'mine';
+    return this.foodOf(game)/ECONOMY_RESERVE.food<=this.oreOf(game)/ECONOMY_RESERVE.ore?'factory':'mine';
+  }
+  foodShortage(game,own){
+    const income=own.filter(b=>b.type==='factory'&&(!b.constructionPending||this.safeSite(game,b,this.team))).reduce((sum,b)=>sum+game.foodRate(b),0);
+    const demand=Math.max(20,own.filter(b=>b.type==='base').length*(6*STATS.shield.food+4*STATS.archer.food)/(6*STATS.shield.trainTime+4*STATS.archer.trainTime)+2);
+    return income<demand&&this.foodOf(game)<ECONOMY_RESERVE.food&&this.foodOf(game)/ECONOMY_RESERVE.food<this.oreOf(game)/ECONOMY_RESERVE.ore*.5;
   }
   planBuilding(game,own,units,base){
     const t=this.team;
     const count=type=>own.filter(b=>b.type===type).length;
-    const cap=own.reduce((n,b)=>n+(!b.constructionPending?(STATS[b.type].pop||0):0),0);
     const nearby=type=>this.nearbySite(game,type,base,t);
     const resource=(type,nodes)=>this.resourceSite(game,type,nodes,base,own,t);
     const towerAt=group=>this.towerSite(game,group,own,t);
@@ -238,6 +281,18 @@ export class BalancedAI{
     const groups=game.map.resources.map((mine,i)=>({mine,food:game.map.foodPoints[i]}))
       .filter(g=>g.food&&distance({x:(g.mine.x+g.food.x)/2,y:(g.mine.y+g.food.y)/2},ownSpawn)<distance({x:(g.mine.x+g.food.x)/2,y:(g.mine.y+g.food.y)/2},oppSpawn))
       .sort((a,b)=>distance(a.mine,ownSpawn)-distance(b.mine,ownSpawn));
+    // 严重缺粮时允许脱离固定资源组，在安全后方补普通食物厂。
+    if(this.foodShortage(game,own)){
+      const factory=resource('factory',groups.map(g=>g.food));
+      if(factory)return factory;
+      for(const anchor of own.filter(b=>!b.constructionPending).sort((a,b)=>distance(a,base)-distance(b,base))){
+        const fallback=this.nearbySite(game,'factory',anchor,t);
+        if(fallback)return fallback;
+      }
+      return null;
+    }
+    const expansion=this.planBase(game,own,units,base);
+    if(expansion)return expansion;
     // 尽早把第二组经济落到另一个点位，其中先建当前更短缺的资源建筑。
     if(count('factory')<2&&count('mine')<2){
       const first=preferred==='factory'
@@ -247,23 +302,22 @@ export class BalancedAI{
     }
     if(count('factory')<2){const factory=resource('factory',groups.map(g=>g.food));if(factory)return factory;}
     if(count('mine')<2){const mine=resource('mine',groups.map(g=>g.mine));if(mine)return mine;}
-    if(units.length+this.queueOf(game).length>=cap-8)return nearby('base');
     for(const group of groups){
       if(!this.safeSite(game,group.mine,t)||!this.safeSite(game,group.food,t))continue;
       const hasMine=own.some(b=>b.type==='mine'&&coversCell(b,group.mine));
       const hasFactory=own.some(b=>b.type==='factory'&&coversCell(b,group.food));
       if(!hasMine&&!hasFactory&&preferred==='factory'){
         const factory=game.placement('factory',{x:group.food.x+.5,y:group.food.y+.5},t);
-        if(!factory.error)return {...factory,type:'factory'};
+        if(!factory.error&&!factory.reserved)return {...factory,type:'factory'};
       }
       if(!hasMine){
         const mine=game.placement('mine',{x:group.mine.x+.5,y:group.mine.y+.5},t);
-        if(!mine.error)return {...mine,type:'mine'};
+        if(!mine.error&&!mine.reserved)return {...mine,type:'mine'};
         continue;
       }
       if(!hasFactory){
         const factory=game.placement('factory',{x:group.food.x+.5,y:group.food.y+.5},t);
-        if(!factory.error)return {...factory,type:'factory'};
+        if(!factory.error&&!factory.reserved)return {...factory,type:'factory'};
         continue;
       }
     }
@@ -271,6 +325,17 @@ export class BalancedAI{
       if(!own.some(b=>b.type==='mine'&&coversCell(b,group.mine))||!own.some(b=>b.type==='factory'&&coversCell(b,group.food)))continue;
       const tower=towerAt(group);
       if(tower)return tower;
+    }
+    return null;
+  }
+  planBase(game,own,units,base){
+    const bases=own.filter(b=>b.type==='base');
+    const projectedCap=bases.length*STATS.base.pop;
+    const rich=this.foodOf(game)>=1500&&this.oreOf(game)>=1500;
+    if(bases.length&&usedPop(units,this.team,this.queueOf(game))<projectedCap-8&&(!rich||bases.length>=3))return null;
+    for(const anchor of [base,...bases.filter(b=>b!==base&&!b.constructionPending)]){
+      const job=this.nearbySite(game,'base',anchor,this.team);
+      if(job)return job;
     }
     return null;
   }
@@ -287,7 +352,7 @@ export class BalancedAI{
   nearbySite(game,type,base,t){
       for(const r of [7,11,15])for(const [dx,dy] of [[-1,0],[0,1],[-1,1],[1,0],[0,-1],[1,1]]){
         const p=game.placement(type,{x:base.x+dx*r,y:base.y+dy*r},t);
-        if(!p.error&&this.safeSite(game,p,t))return {...p,type};
+        if(!p.error&&!p.reserved&&this.safeSite(game,p,t))return {...p,type};
       }
       return null;
   }
@@ -296,7 +361,7 @@ export class BalancedAI{
         // 已被己方对应建筑覆盖的食物点不重复建设。
         if(own.some(b=>b.type===type&&coversCell(b,n)))continue;
         const p=game.placement(type,{x:n.x+.5,y:n.y+.5},t);
-        if(!p.error&&this.safeSite(game,p,t))return {...p,type};
+        if(!p.error&&!p.reserved&&this.safeSite(game,p,t))return {...p,type};
       }
       return null;
   }
@@ -305,7 +370,7 @@ export class BalancedAI{
       if(own.some(b=>b.type==='tower'&&distance(b,center)<=8))return null;
       for(const [dx,dy] of [[0,0],[5,0],[0,5],[-5,0],[0,-5],[5,5],[-5,5],[5,-5],[-5,-5]]){
         const p=game.placement('tower',{x:center.x+dx,y:center.y+dy},t);
-        if(!p.error&&this.safeSite(game,p,t))return {...p,type:'tower'};
+        if(!p.error&&!p.reserved&&this.safeSite(game,p,t))return {...p,type:'tower'};
       }
       return null;
   }

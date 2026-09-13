@@ -58,10 +58,10 @@ test('食物点：双方翻倍、普通产出、施工不产出、拆毁后资�
   assert.equal(g.foodRate(g.addBuilding('factory',0,node.x+.5,node.y+.5)),6);
 });
 
-test('AI 建造同样检查视野、敌方占地、独立扣费，自动让位并完成施工',()=>{
+test('AI 建造允许预定、检查敌方占地、独立扣费，自动让位并完成施工',()=>{
   const g=new Game('balanced');g.ai=null;
   const units=g.units.filter(u=>u.team===1),p={x:units[0].x,y:units[0].y};
-  assert.match(g.build(units.map(u=>u.id),'factory',{x:64,y:70},1),/视野/);
+  assert.equal(g.placement('factory',{x:64,y:70},1).reserved,true);
   const intruder=g.addUnit('shield',0,p.x,p.y);assert.match(g.placement('factory',p,1).error,/移开/);intruder.hp=0;
   const food=g.food,ore=g.ore,aiFood=g.aiFood,aiOre=g.aiOre;
   assert.equal(g.build(units.map(u=>u.id),'factory',p,1),null);
@@ -85,6 +85,8 @@ test('AI 发现基地受袭后集结反击，不响应远处未见敌军',()=>{
 
 test('AI 达到四十五名主力才主动出击，重损后回防',()=>{
   const g=new Game('balanced');g.aiFood=0;g.aiOre=0;
+  // 单独验证军事阈值；建设分工与进攻并行另有集成测试。
+  g.ai.updateEconomy=()=>null;
   while(g.units.filter(u=>u.team===1).length<44)g.addUnit('shield',1,100,25);
   g.ai.update(g,3);assert.equal(g.ai.attacking,false);
   g.addUnit('shield',1,100,25);g.ai.timer=0;g.ai.update(g,3);assert.equal(g.ai.attacking,true);
@@ -172,6 +174,123 @@ test('AI 经济选址避开可见敌方哨塔射程',()=>{
   const plan=()=>g.ai.planBuilding(g,own,[],base);
   const first=plan();g.addBuilding('tower',0,first.x+6,first.y);
   const job=plan();assert.ok(job);assert.ok(distance(first,job)>10);
+});
+
+test('缺粮进攻：没有可用食物点时留钱、分工并实际完成普通食物厂',()=>{
+  const g=new Game('balanced');
+  const base=g.buildings.find(b=>b.team===1&&b.primary);
+  // 保留本土视野，前线主力持续进攻；加固玩家建筑让验证不被提前结算打断。
+  for(const b of g.buildings.filter(b=>b.team===0))b.hp=b.maxHp=1e8;
+  while(g.units.filter(u=>u.team===1).length<55)g.addUnit('shield',1,base.x-8,base.y+8);
+  g.aiFood=80;g.aiOre=3000;g.ai.attacking=true;
+  const before=g.buildings.filter(b=>b.team===1&&b.type==='factory').length;
+  g.ai.update(g,3);
+  assert.equal(g.aiQueue.length,0,'先攒够食物厂的 100 食物，不被补兵消费');
+  assert.equal(g.ai.economicWorkers.size,4);
+  assert.ok(g.units.filter(u=>u.team===1&&!g.ai.economicWorkers.has(u.id)).some(u=>u.aiOrderKey?.startsWith('attack:')));
+  advance(g,90);
+  const factories=g.buildings.filter(b=>b.team===1&&b.type==='factory'&&!b.constructionPending);
+  assert.ok(factories.length>before,'必须实际完工，不能只检查 planBuilding 返回值');
+  assert.ok(factories.some(b=>g.foodRate(b)===3),'普通地块也能补食物产能');
+  assert.ok(g.ai.attacking,'建设不能停止主力进攻');
+});
+
+test('严重缺粮优先于第三组配套矿场和人口扩基，食物产能足够后停止应急补厂',()=>{
+  const g=new Game('balanced');g.visible[1].fill(1);g.aiFood=50;g.aiOre=4000;
+  const base=g.buildings.find(b=>b.team===1&&b.primary);
+  g.addBuilding('factory',1,base.x-7,base.y);
+  while(g.units.filter(u=>u.team===1).length<40)g.addUnit('shield',1,base.x-8,base.y+8);
+  const own=()=>g.buildings.filter(b=>b.team===1);
+  assert.equal(g.ai.planBuilding(g,own(),g.units.filter(u=>u.team===1),base).type,'factory');
+  for(const node of g.map.foodPoints.slice(0,4))g.addBuilding('factory',1,node.x+.5,node.y+.5);
+  assert.equal(g.ai.foodShortage(g,own()),false,'产能已够时不能仅因矿石多而无限补厂');
+});
+
+test('危险的旧工地不阻塞后方缺粮救急，且不重复开启更多工地',()=>{
+  const g=new Game('balanced');g.visible[1].fill(1);g.aiFood=150;g.aiOre=3000;
+  const site=g.addBuilding('mine',1,64.5,44.5);site.constructionPending=true;site.constructionRemaining=180;
+  for(let i=0;i<4;i++)g.addUnit('shield',0,site.x+6+i,site.y);
+  g.ai.update(g,3);
+  const sites=g.buildings.filter(b=>b.team===1&&b.constructionPending);
+  assert.equal(sites.length,2);assert.ok(sites.some(b=>b.type==='factory'));
+  assert.ok(g.units.filter(u=>u.order==='build').every(u=>u.buildingId!==site.id));
+  g.aiFood=1000;g.ai.update(g,3);
+  assert.equal(g.buildings.filter(b=>b.team===1&&b.constructionPending).length,2);
+});
+
+test('缺粮但暂时没有合法选址时仍保留建设预算',()=>{
+  const g=new Game('balanced');g.aiFood=80;g.aiOre=3000;g.visible[1].fill(0);
+  g.ai.update(g,3);
+  assert.equal(g.aiQueue.length,0);assert.equal(g.aiFood,80);
+  assert.equal(g.buildPlans.length,0,'AI 不偷偷在无视野处预建');
+});
+
+test('双方富余资源时在食物厂施工期间同轮扩建基地，三组工人独立并实际完工',()=>{
+  for(const t of [0,1]){
+    const g=new Game('balanced'),ai=t===1?g.ai:g.playerAI;
+    g.ai=t===1?ai:null;g.playerAIControl=t===0;
+    for(const b of g.buildings.filter(b=>b.team!==t))b.hp=b.maxHp=1e8;
+    const base=g.buildings.find(b=>b.team===t&&b.primary);
+    while(g.units.filter(u=>u.team===t).length<52)g.addUnit('shield',t,base.x+(t?-8:8),base.y+(t?8:-8));
+    g[t?'aiFood':'food']=3000;g[t?'aiOre':'ore']=3000;g.updateVision();
+    const factory=ai.nearbySite(g,'factory',base,t);
+    assert.ok(factory);
+    assert.equal(g.build(g.units.filter(u=>u.team===t).slice(0,4).map(u=>u.id),'factory',factory,t),null);
+    const original=g.buildings.at(-1);
+    ai.update(g,3);
+    const sites=g.buildings.filter(b=>b.team===t&&b.constructionPending);
+    assert.equal(sites.length,3);
+    assert.equal(sites.filter(b=>b.type==='base').length,2,'不能等食物厂完工才扩基');
+    for(const site of sites){
+      const count=site.awaitingEviction?site.builderIds.length:g.units.filter(u=>u.team===t&&u.order==='build'&&u.buildingId===site.id).length;
+      assert.ok(count>=2&&count<=4,'清场中的部队不能重复派遣，每处仍需独立工人');
+    }
+    assert.ok(ai.economicWorkers.size<=12);
+    assert.ok(g.units.filter(u=>u.team===t&&!ai.economicWorkers.has(u.id)).length>=40);
+    const afterSpend=[g[t?'aiFood':'food'],g[t?'aiOre':'ore']];
+    ai.update(g,3);
+    assert.equal(g.buildings.filter(b=>b.team===t&&b.type==='base').length,3,'在建基地计入需求，不重复扩基');
+    assert.deepEqual([g[t?'aiFood':'food'],g[t?'aiOre':'ore']],afterSpend,'人口已满时不重复扣费');
+    advance(g,12);
+    for(const site of sites)assert.equal(g.units.filter(u=>u.team===t&&u.order==='build'&&u.buildingId===site.id).length,4,'清场后各组工人应进入自己的工地');
+    advance(g,138);
+    assert.ok(sites.every(b=>!b.constructionPending),'原来三座工地都应完成，而非只创建建筑对象');
+    assert.equal(original.type,'factory');
+  }
+});
+
+test('多基地分别补训练队列，并遵守建设预算、人口和各基地队列目标',()=>{
+  for(const t of [0,1]){
+    const g=new Game('balanced'),ai=t===1?g.ai:g.playerAI;
+    g.ai=null;g.playerAIControl=false;
+    const base=g.buildings.find(b=>b.team===t&&b.primary);
+    g.addBuilding('base',t,base.x+(t?-12:12),base.y);
+    g.addBuilding('base',t,base.x,base.y+(t?12:-12));
+    g[t?'aiFood':'food']=2000;g[t?'aiOre':'ore']=2000;
+    const context=ai.collectSituation(g),reserve={food:100,ore:200};
+    ai.updateTraining(g,context,reserve);
+    const queue=ai.queueOf(g),bases=g.buildings.filter(b=>b.team===t&&b.type==='base');
+    assert.equal(queue.length,6);
+    for(const b of bases)assert.equal(queue.filter(q=>q.baseId===b.id).length,2);
+    assert.equal(queue.filter(q=>q.type==='wilddog').length,2,'侦察兵目标是全阵营两只');
+    ai.updateTraining(g,context,reserve);assert.equal(queue.length,6);
+    const count=g.units.filter(u=>u.team===t).length;
+    advance(g,6);assert.ok(g.units.filter(u=>u.team===t).length>=count+4,'不同基地实际并行出兵');
+    queue.splice(0);g[t?'aiFood':'food']=100;g[t?'aiOre':'ore']=200;
+    ai.updateTraining(g,ai.collectSituation(g),reserve);assert.equal(queue.length,0);
+  }
+});
+
+test('并行规划计入安全在建食物收入，工人不足时不铺空工地',()=>{
+  const g=new Game('balanced');g.aiFood=50;g.aiOre=3000;
+  const own=g.buildings.filter(b=>b.team===1);
+  assert.equal(g.ai.foodShortage(g,own),true);
+  for(let i=0;i<5;i++)own.push({type:'factory',x:100+i*4,y:30,team:1,constructionPending:true});
+  assert.equal(g.ai.foodShortage(g,own),false);
+  const h=new Game('balanced');h.aiFood=3000;h.aiOre=3000;
+  h.ai.update(h,3);
+  assert.equal(h.buildings.filter(b=>b.team===1&&b.constructionPending).length,1,'十二名初始主力只能分出一组四人工人');
+  assert.equal(h.ai.economicWorkers.size,4,'清场待工人员也计入建设分工');
 });
 
 test('自然经济长局：探图、多点扩张、哨塔、扩人口、积兵进攻与胜负',()=>{

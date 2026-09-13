@@ -1,4 +1,5 @@
 import {STATS} from './data.js';
+import {towerGarrisonType} from './rules.js';
 import {buildingCells,coversCell} from './pathfinding.js';
 const TEAM=['#85d7e3','#e59678'];
 export class Renderer{
@@ -81,10 +82,10 @@ export class Renderer{
         c.fillStyle='#72999b';c.fillRect(-.85,-2.2,1.7,.5);c.strokeRect(-.85,-2.2,1.7,.5);
         c.beginPath();c.moveTo(-.4,.5);c.lineTo(.4,-1.6);c.moveTo(.4,.5);c.lineTo(-.4,-1.6);c.stroke();
         if(b.id===selectedBuilding){c.strokeStyle='#e0ebac';c.strokeRect(-1,-1,2,2);}
-        if(!b.constructionPending){c.fillStyle=TEAM[b.team];c.beginPath();c.arc(0,-2.45,.25,0,Math.PI*2);c.fill();c.strokeStyle='#f4dfaa';c.beginPath();c.moveTo(-.45,-2.4);c.lineTo(.45,-2.4);c.moveTo(0,-2.75);c.lineTo(0,-2.05);c.stroke();}
+        if(!b.constructionPending){c.fillStyle=TEAM[b.team];c.beginPath();c.arc(0,-2.45,.25,0,Math.PI*2);c.fill();c.strokeStyle='#f4dfaa';c.beginPath();c.moveTo(-.45,-2.4);c.lineTo(.45,-2.4);c.moveTo(0,-2.75);c.lineTo(0,-2.05);if(towerGarrisonType(state,b.team)==='crossbow'){c.moveTo(-.3,-2.65);c.lineTo(.3,-2.15);c.moveTo(-.3,-2.15);c.lineTo(.3,-2.65);}c.stroke();}
         this.bar(c,0,-3.1,2,b.hp/b.maxHp,b.team);
         c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;
-        c.fillText('哨塔'+(!b.constructionPending?` · ${state.units.filter(u=>u.hp>0&&u.garrisonId===b.id).length}/4`:'')+(b.awaitingEviction?' · 等待部队离开':b.constructionPending?(b.activeBuilders?` · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:' · 等待施工'):''),0,1.8);
+        c.fillText('哨塔'+(!b.constructionPending?` · ${1+state.units.filter(u=>u.hp>0&&u.garrisonId===b.id).length}/4`:'')+(b.awaitingEviction?' · 等待部队离开':b.constructionPending?(b.activeBuilders?` · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:' · 等待施工'):''),0,1.8);
         c.restore();continue;
       }
       c.save();c.translate(b.x,b.y);c.fillStyle='#0c171880';c.fillRect(-1.7,-1.4,4,3.8);c.fillStyle=b.team===0?'#35515a':'#644b3a';c.strokeStyle=TEAM[b.team];c.lineWidth=.12;c.fillRect(-1.8,-1.8,3.6,3.6);c.strokeRect(-1.8,-1.8,3.6,3.6);c.fillStyle=b.team===0?'#72999b':'#af8660';c.beginPath();c.moveTo(-2,-.7);c.lineTo(0,-2.4);c.lineTo(2,-.7);c.closePath();c.fill();c.fillStyle='#1d2c27';c.fillRect(-.45,.1,.9,1.7);c.strokeStyle=TEAM[b.team];c.beginPath();c.moveTo(1,-1.7);c.lineTo(1,-3.3);c.stroke();c.fillStyle=TEAM[b.team];c.fillRect(1,-3.3,1,.55);this.bar(c,0,-3.8,4,b.hp/b.maxHp,b.team);c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;c.fillText(STATS[b.type].name+(b.awaitingEviction?' · 等待部队离开':b.constructionPending?(b.activeBuilders?` · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:' · 等待施工'):''),0,2.8);
@@ -138,6 +139,12 @@ export class Renderer{
     }
     if(!all){
       c.imageSmoothingEnabled=false;c.drawImage(this.fogCanvas,0,0,W,H);
+    }
+    for(const plan of state.buildPlans||[]){
+      if(!all&&plan.team!==team)continue;
+      const r=STATS[plan.type].halfSize||2;
+      c.save();c.fillStyle=TEAM[plan.team]+'33';c.fillRect(plan.x-r,plan.y-r,r*2,r*2);c.strokeStyle=TEAM[plan.team];c.lineWidth=.12;c.setLineDash([.4,.3]);c.strokeRect(plan.x-r,plan.y-r,r*2,r*2);c.setLineDash([]);
+      c.fillStyle='#fff1d2';c.textAlign='center';c.font=`${Math.max(.8,12/z)}px "Microsoft YaHei"`;c.fillText('预定建筑',plan.x,plan.y+r+1);c.restore();
     }
     const selectedProducer=state.buildings.find(b=>b.id===selectedBuilding&&['base','machineFactory'].includes(b.type)&&b.hp>0&&b.rallyPoint);
     if(selectedProducer){

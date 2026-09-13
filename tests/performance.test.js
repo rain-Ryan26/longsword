@@ -88,3 +88,12 @@ test('观察页更新视野、重开和主窗口重载后恢复地图',()=>{
   const lost=new SnapshotReceiver('a');assert.equal(lost.receive({...message,state:{revision:1,visionVersion:1}}),false);
   restarted.receive(lost.message(),5);restarted.publish(g.snapshot(),false,1,5);assert.equal(lost.receive(message),true);
 });
+
+test('己方预定区域填充与标签绘制在迷雾之上，敌方预定隐藏',()=>{
+  const f=fixture();f.game.buildPlans=[{type:'tower',team:0,x:50,y:30},{type:'tower',team:1,x:55,y:30}];
+  f.draw();const calls=f.calls.filter(c=>c.label==='main');
+  const fog=calls.findIndex(c=>c.name==='drawImage'&&c.args[0]===f.renderer.fogCanvas);
+  const fill=calls.findIndex(c=>c.name==='fillRect'&&c.args[0]===49&&c.args[1]===29&&c.args[2]===2);
+  const labels=calls.filter(c=>c.name==='fillText'&&c.args[0]==='预定建筑');
+  assert.ok(fill>fog);assert.equal(labels.length,1);
+});
