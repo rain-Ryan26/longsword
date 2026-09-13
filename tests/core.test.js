@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game,distance,TRAIN_QUEUE_LIMIT} from '../src/core.js';
 import {findPath,walkable,buildingCells} from '../src/pathfinding.js';
-import {W,H,STATS,TECHNOLOGIES,isSlowTerrain,usedPop} from '../src/data.js';
+import {W,H,STATS,TECHNOLOGIES,isSlowTerrain,usedPop,createMapBalanced} from '../src/data.js';
 const advance=(g,t)=>{for(let n=0;n<t/.05;n++)g.step(.05);};
 test('各建筑采用当前建造成本，且统一为 5 点护甲',()=>{
   assert.deepEqual(
@@ -563,7 +563,7 @@ test('进攻关卡：固定兵力、三据点联防、AI 不补员，摧毁敌�
   assert.equal(g.units.filter(u=>u.team===0&&u.type==='archer').length,60);
   assert.equal(g.units.filter(u=>u.team===1&&u.type==='shield').length,90);
   assert.equal(g.units.filter(u=>u.team===1&&u.type==='archer').length,60);
-  assert.equal(g.buildings.filter(b=>b.team===1&&b.type==='tower').length,3);
+  assert.equal(g.buildings.filter(b=>b.team===1&&b.type==='tower').length,9);
   assert.equal(g.popCap(),200);assert.equal(g.popCap(1),200);
   // 双方保留主基地、采矿场、食物厂
   for(const team of [0,1]){
@@ -598,21 +598,42 @@ test('进攻关卡：受袭调兵、保留各点驻军，失联后归队',()=>{
   assert.ok(response.every(u=>u.role==='guard'&&u.order==='move'));
 });
 
-test('进攻关卡：地图、机械、随机据点配兵和侦察',()=>{
-  const original=Math.random,layouts=new Set();
-  try{
-    for(const value of [0,.5,.999]){
-      Math.random=()=>value;const g=new Game('attack');
-      assert.deepEqual([g.map.width,g.map.height],[128,88]);
-      for(const type of ['armoredCar','steamWalker'])assert.equal(g.units.filter(u=>u.team===0&&u.type===type).length,2);
-      const counts=[0,1,2].map(i=>g.units.filter(u=>u.team===1&&u.defenseSector===i).length);
-      assert.deepEqual([...counts].sort((a,b)=>a-b),[30,50,70]);layouts.add(counts.join(','));
-      const dogs=g.units.filter(u=>u.team===1&&u.type==='wilddog');assert.equal(dogs.length,3);
-      g.ai.update(g,.1);assert.ok(dogs.every(u=>u.order==='move'&&u.goal));
-      for(const u of g.units)assert.ok(u.x>=0&&u.x<128&&u.y>=0&&u.y<88);
+test('进攻关卡：复用均衡地图、三路兵力、固定据点配兵及独立巡逻',()=>{
+  const g=new Game('attack'),balanced=createMapBalanced();
+  for(const key of ['width','height','terrain','resources','foodPoints','spawns'])assert.deepEqual(g.map[key],balanced[key]);
+  assert.deepEqual(g.map.camps,[{x:86,y:12},{x:104,y:60},{x:116,y:12}]);
+  for(const type of ['armoredCar','steamWalker'])assert.equal(g.units.filter(u=>u.team===0&&u.type===type).length,2);
+  assert.deepEqual([0,1,2].map(i=>g.units.filter(u=>u.team===1&&u.defenseSector===i).length),[30,50,70]);
+  for(const wing of [0,1,2])for(const type of ['shield','archer'])
+    assert.equal(g.units.filter(u=>u.team===0&&u.attackWing===wing&&u.type===type).length,20);
+  assert.deepEqual([0,1,2].map(i=>g.buildings.filter(b=>b.type==='tower'&&b.defenseSector===i).length),[2,3,4]);
+  const cells=new Set();
+  for(const u of g.units){
+    const cell=g.cellIndex(u.x,u.y);assert.equal(g.map.terrain[cell],0);
+    assert.ok(walkable(g.map,g.buildings,Math.floor(u.x),Math.floor(u.y)));
+    assert.ok(!cells.has(cell));cells.add(cell);
+  }
+  for(const b of g.buildings){
+    const c=buildingCells(b);
+    for(let y=c.y0;y<=c.y1;y++)for(let x=c.x0;x<=c.x1;x++)assert.equal(g.map.terrain[g.cellIndex(x,y)],0);
+  }
+  const dogs=g.units.filter(u=>u.type==='wilddog');assert.equal(dogs.length,3);
+  g.ai.update(g,.1);
+  for(const dog of dogs){
+    const route=g.map.patrolRoutes[dog.patrolRoute];assert.equal(route.length,4);
+    assert.ok(dog.goal&&dog.order==='move');
+    for(let i=0;i<route.length;i++){
+      const a=route[i],b=route[(i+1)%route.length];
+      assert.equal(g.map.terrain[g.cellIndex(a.x,a.y)],0);
+      assert.ok(findPath(g.map,g.buildings,a,b,true,false).length,'巡逻路线须绕山连通');
+      dog.x=dog.goal.x;dog.y=dog.goal.y;
+      g.ai.scout(g,[dog],[]);
+      assert.ok(route.some(p=>Math.hypot(dog.goal.x-p.x,dog.goal.y-p.y)<1));
     }
-    assert.ok(layouts.size>1);
-  }finally{Math.random=original;}
+    assert.ok(findPath(g.map,g.buildings,route[0],dog.home,true,false).length,'撤回据点路线须连通');
+  }
+  const start=g.units.find(u=>u.team===0&&u.type==='shield');
+  for(const camp of g.map.camps)assert.ok(findPath(g.map,g.buildings,start,{x:camp.x-4,y:camp.y+4},true,true).length,'我方可绕开山林抵达据点');
 });
 
 test('进攻关卡：侦察仅按视野派兵，大部队加派，野狗近敌撤退',()=>{
@@ -724,4 +745,59 @@ test('进攻与防守固定 200 人口，双方训练计入排队人数',()=>{
     assert.equal(g.popCap(),cap);assert.equal(g.popCap(1),cap);
     assert.match(g.train('shield'),/基地/);assert.match(g.aiTrain('shield'),/基地/);
   }
+});
+
+
+test('哨塔入驻预留最多四人，到场隐藏且仍占人口，退出保留生命并回到可走空地',()=>{
+  const g=productionGame(),tower=g.addBuilding('tower',0,25,32);
+  const units=Array.from({length:5},(_,i)=>g.addUnit('shield',0,20,29+i));
+  units[0].hp=35;
+  assert.equal(g.enterTower(units.map(u=>u.id),tower.id),null);
+  assert.equal(units.filter(u=>u.garrisonTarget===tower.id).length,4);
+  assert.match(g.enterTower(units.map(u=>u.id),tower.id),/已满/);
+  assert.equal(units.filter(u=>u.garrisonId).length,0);
+  advance(g,12);
+  const inside=units.filter(u=>u.garrisonId===tower.id);
+  assert.equal(inside.length,4);assert.equal(usedPop(g.units,0),5);
+  assert.ok(inside.every(u=>!g.entities().includes(u)));
+  const hp=inside.map(u=>u.hp);
+  inside.forEach(u=>g.damage(u,500));
+  g.command(inside.map(u=>u.id),'move',{x:40,y:32});advance(g,1);
+  assert.deepEqual(inside.map(u=>u.hp),hp);
+  assert.ok(inside.every(u=>u.x===tower.x&&u.y===tower.y));
+  assert.equal(g.exitTower(tower.id),null);
+  assert.ok(inside.every(u=>!u.garrisonId&&walkable(g.map,g.buildings,Math.floor(u.x),Math.floor(u.y))));
+  assert.equal(new Set(inside.map(u=>`${u.x},${u.y}`)).size,4);
+  assert.deepEqual(inside.map(u=>u.hp),hp);
+});
+test('入驻只接受己方完工哨塔；改令、退出和塔毁取消赶路预留',()=>{
+  const g=productionGame(),tower=g.addBuilding('tower',0,30,32),u=g.addUnit('archer',0,20,32);
+  tower.constructionPending=true;assert.match(g.enterTower([u.id],tower.id),/已完工/);
+  tower.constructionPending=false;tower.team=1;assert.match(g.enterTower([u.id],tower.id),/己方/);tower.team=0;
+  const bird=g.addUnit('pigeon',0,20,30);assert.match(g.enterTower([bird.id],tower.id),/地面/);
+  assert.equal(g.enterTower([u.id],tower.id),null);
+  g.command([u.id],'move',{x:18,y:32});assert.equal(u.garrisonTarget,null);
+  g.enterTower([u.id],tower.id);g.exitTower(tower.id);assert.equal(u.garrisonTarget,null);
+  g.enterTower([u.id],tower.id);g.damage(tower,1000);assert.equal(u.garrisonTarget,null);assert.ok(u.hp>0);
+});
+test('哨塔摧毁和拆除均使驻兵阵亡，入驻后在途弹丸不能伤及驻兵',()=>{
+  for(const demolish of [false,true]){
+    const g=productionGame(),tower=g.addBuilding('tower',0,25,32),u=g.addUnit('archer',0,23.5,32.5);
+    g.enterTower([u.id],tower.id);advance(g,2);assert.equal(u.garrisonId,tower.id);
+    g.projectiles.push({x:u.x,y:u.y,targetId:u.id,damage:500,life:2});
+    g.stepProjectiles(.1,[u,tower],new Map([[u.id,u],[tower.id,tower]]));assert.ok(u.hp>0);
+    if(demolish)g.demolish(tower.id);else g.damage(tower,1000);
+    assert.equal(u.hp,0);assert.equal(usedPop(g.units,0),0);
+  }
+});
+
+test('哨塔出口被占时保留驻兵，清空后可再次退出',()=>{
+  const g=productionGame(),tower=g.addBuilding('tower',0,25,32),u=g.addUnit('shield',0,23.5,32.5);
+  g.enterTower([u.id],tower.id);advance(g,2);
+  const blockers=[];
+  for(let y=30.5;y<=33.5;y++)for(let x=23.5;x<=26.5;x++){
+    if(walkable(g.map,g.buildings,Math.floor(x),Math.floor(y)))blockers.push(g.addUnit('shield',0,x,y));
+  }
+  assert.match(g.exitTower(tower.id),/空地/);assert.equal(u.garrisonId,tower.id);
+  blockers.forEach(b=>b.hp=0);assert.equal(g.exitTower(tower.id),null);assert.equal(u.garrisonId,null);
 });

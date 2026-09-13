@@ -65,7 +65,8 @@ export class DefendAI{
         return;
       }
       if(u.goal&&distance(u,u.goal)>2)return;
-      const p=points[u.scoutIndex%points.length];u.scoutIndex=(u.scoutIndex+1)%points.length;
+      const route=game.map.patrolRoutes?.[u.patrolRoute]||points;
+      const p=route[u.scoutIndex%route.length];u.scoutIndex=(u.scoutIndex+1)%route.length;
       game.command([u.id],'move',p,null,false,false,1);
     });
   }
@@ -153,20 +154,22 @@ export class BalancedAI{
     return {main,threat};
   }
   updateEconomy(game,{t,own,base,units,army,main,threat}){
-    // 平时保留十名主力；经济或训练基地断档时允许少量残兵恢复建设。
+    // 平稳时派足四人；局部接敌保留更多主力，基地告急才暂停扩张。
     const recovering=['base','mine','factory'].some(type=>!own.some(b=>b.type===type));
-    const workers=main.slice(0,Math.min(4,recovering?main.length:Math.max(0,main.length-10))).map(u=>u.id);
+    const workerCount=Math.min(4,recovering?main.length:Math.max(0,main.length-(threat?10:6)));
+    const workersAt=point=>[...main].sort((a,b)=>distance(a,point)-distance(b,point)).slice(0,workerCount).map(u=>u.id);
+    const homeDanger=!this.safeSite(game,base,t);
     const site=own.find(b=>b.constructionPending);
     let job=null;
     if(site){
       const assigned=units.filter(u=>u.buildingId===site.id&&u.order==='build').length;
-      if(!site.awaitingEviction&&assigned<4&&workers.length&&!threat){
-        game.dispatchBuilders(site,game.builderAssignments(workers,site));
+      if(!site.awaitingEviction&&assigned<4&&workerCount&&!homeDanger&&this.safeSite(game,site,t)){
+        game.dispatchBuilders(site,game.builderAssignments(workersAt(site),site));
       }
-    }else if(!threat&&workers.length){
+    }else if(!homeDanger&&workerCount){
       job=this.planBuilding(game,own,units,base);
       if(job&&this.foodOf(game)>=STATS[job.type].food&&this.oreOf(game)>=STATS[job.type].ore){
-        if(!game.build(workers,job.type,job,t))job=null;
+        if(!game.build(workersAt(job),job.type,job,t))job=null;
       }
     }
     if(this.queueOf(game).length>=2)return;
@@ -174,7 +177,7 @@ export class BalancedAI{
     const archers=army.filter(u=>u.type==='archer'||u.type==='crossbow'||u.type==='armoredCar'||u.type==='steamWalker').length;
     const type=dogs<2&&!threat?'wilddog':archers<army.length*.4?'archer':'shield';
     // 防守告急时可花建设预留；平时先为下一座经济建筑积累资源。
-    const reserve=job&&!threat?STATS[job.type]:{food:0,ore:0};
+    const reserve=job&&!homeDanger?STATS[job.type]:{food:0,ore:0};
     if(this.foodOf(game)>=STATS[type].food+reserve.food&&this.oreOf(game)>=STATS[type].ore+reserve.ore)game.enqueueTraining(type,null,t);
   }
   orderGroup(game,units,mode,target){
@@ -239,6 +242,7 @@ export class BalancedAI{
     if(count('mine')<2){const mine=resource('mine',groups.map(g=>g.mine));if(mine)return mine;}
     if(units.length+this.queueOf(game).length>=cap-8)return nearby('base');
     for(const group of groups){
+      if(!this.safeSite(game,group.mine,t)||!this.safeSite(game,group.food,t))continue;
       const hasMine=own.some(b=>b.type==='mine'&&coversCell(b,group.mine));
       const hasFactory=own.some(b=>b.type==='factory'&&coversCell(b,group.food));
       if(!hasMine&&!hasFactory&&preferred==='factory'){
@@ -255,15 +259,28 @@ export class BalancedAI{
         if(!factory.error)return {...factory,type:'factory'};
         continue;
       }
+    }
+    if(count('factory')>=2&&count('mine')>=2)for(const group of groups){
+      if(!own.some(b=>b.type==='mine'&&coversCell(b,group.mine))||!own.some(b=>b.type==='factory'&&coversCell(b,group.food)))continue;
       const tower=towerAt(group);
       if(tower)return tower;
     }
     return null;
   }
+  safeSite(game,point,t){
+    let soldiers=0;
+    for(const enemy of game.entities()){
+      if(enemy.team===t||enemy.hp<=0||!STATS[enemy.type].damage||!game.canSee(t,enemy))continue;
+      const d=distance(enemy,point);
+      if(enemy.building){if(!enemy.constructionPending&&d<=(STATS[enemy.type].range||0)+4)return false;}
+      else if(d<18&&++soldiers>=4)return false;
+    }
+    return true;
+  }
   nearbySite(game,type,base,t){
       for(const r of [7,11,15])for(const [dx,dy] of [[-1,0],[0,1],[-1,1],[1,0],[0,-1],[1,1]]){
         const p=game.placement(type,{x:base.x+dx*r,y:base.y+dy*r},t);
-        if(!p.error)return {...p,type};
+        if(!p.error&&this.safeSite(game,p,t))return {...p,type};
       }
       return null;
   }
@@ -272,7 +289,7 @@ export class BalancedAI{
         // 已被己方对应建筑覆盖的食物点不重复建设。
         if(own.some(b=>b.type===type&&coversCell(b,n)))continue;
         const p=game.placement(type,{x:n.x+.5,y:n.y+.5},t);
-        if(!p.error)return {...p,type};
+        if(!p.error&&this.safeSite(game,p,t))return {...p,type};
       }
       return null;
   }
@@ -281,7 +298,7 @@ export class BalancedAI{
       if(own.some(b=>b.type==='tower'&&distance(b,center)<=8))return null;
       for(const [dx,dy] of [[0,0],[5,0],[0,5],[-5,0],[0,-5],[5,5],[-5,5],[5,-5],[-5,-5]]){
         const p=game.placement('tower',{x:center.x+dx,y:center.y+dy},t);
-        if(!p.error)return {...p,type:'tower'};
+        if(!p.error&&this.safeSite(game,p,t))return {...p,type:'tower'};
       }
       return null;
   }

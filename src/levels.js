@@ -1,10 +1,15 @@
+import {walkable} from './pathfinding.js';
 import {createMap,createMapAttack,createMapBalanced,createMapDefend} from './data.js';
 
-export const ATTACK_SETUP={playerPerType:60,sectorStrengths:[30,50,70],scouts:3};
+export const ATTACK_SETUP={
+  playerPerType:60,sectorStrengths:[30,50,70],scouts:3,
+  playerWings:[{x:23,y:47},{x:30,y:60},{x:40,y:78}],
+  towers:[[{x:86,y:23},{x:96,y:16}],[{x:94,y:60},{x:104,y:71},{x:94,y:46}],[{x:106,y:22},{x:117,y:26},{x:102,y:8},{x:120,y:40}]]
+};
 export const LEVELS={
   demo:{title:'夺下双营地',desc:'侦察东部资源点，摧毁两座敌方营地。',toast:'框选蓝色部队，按 A 后点击目的地。'},
   balanced:{title:'均衡对抗',desc:'扩张经济、集结部队，摧毁敌方全部建筑。',toast:'双方各 6 盾兵、6 弓箭兵；绿色食物点上的食物厂产量翻倍。'},
-  attack:{title:'突破三处据点',desc:'60 盾兵、60 弓箭兵、2 装甲车、2 蒸汽步行机，摧毁敌方全部建筑。',toast:'150 名敌军随机驻守三处基地，野狗侦察发现大部队会引来增援。'},
+  attack:{title:'突破三处据点',desc:'60 盾兵、60 弓箭兵、2 装甲车、2 蒸汽步行机，摧毁敌方全部建筑。',toast:'三路部队从左下出发；敌方三据点驻守 30 / 50 / 70 人，共 9 座哨塔，野狗分路巡逻。'},
   defend:{title:'抵御两波进攻',desc:'准备 120 秒，敌军首波 70 盾兵 + 70 弓兵，第二波 35 盾 + 35 弓。我方 60 盾 + 60 弓 + 2 蒸汽步行机 + 4 装甲车。保留建筑并全灭两波敌军。',toast:'趁准备期布防；第一波全灭后休整 30 秒迎接第二波。'}
 };
 
@@ -50,31 +55,54 @@ export function setupLevel(game){
       return;
     }
     if(game.level==='attack'){
-      game.addBuilding('base',0,12,44).primary=true;
-      game.addBuilding('machineFactory',0,6,44);
-      game.addBuilding('mine',0,22.5,52.5);
-      game.addBuilding('factory',0,16.5,34.5);
-      for(const type of ['shield','archer'])for(let n=0;n<ATTACK_SETUP.playerPerType;n++)
-        game.addUnit(type,0,(type==='shield'?30:18)+Math.floor(n/12)*2,10+(n%12)*5);
-      for(let n=0;n<2;n++)game.addUnit('armoredCar',0,26+n*3,72);
-      for(let n=0;n<2;n++)game.addUnit('steamWalker',0,26+n*4,76);
-      const strengths=[...ATTACK_SETUP.sectorStrengths];
-      for(let i=strengths.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[strengths[i],strengths[j]]=[strengths[j],strengths[i]];}
+      const home=game.map.spawns[0];
+      game.addBuilding('base',0,home.x,home.y).primary=true;
+      game.addBuilding('machineFactory',0,6,76);
+      for(const team of [0,1]){
+        const node=game.map.resources[team],food=game.map.foodPoints[team];
+        const mine=game.addBuilding('mine',team,node.x+.5,node.y+.5);
+        const factory=game.addBuilding('factory',team,food.x+.5,food.y+.5);
+        if(team){mine.defenseSector=2;factory.defenseSector=2;}
+      }
       game.map.camps.forEach((p,sector)=>{
-        const base=game.addBuilding('base',1,p.x,p.y);base.defenseSector=sector;base.primary=sector===1;
-        game.addBuilding('tower',1,p.x-9,p.y).defenseSector=sector;
-        const count=strengths[sector],shields=count*.6;
+        const base=game.addBuilding('base',1,p.x,p.y);base.defenseSector=sector;base.primary=sector===2;
+        for(const site of ATTACK_SETUP.towers[sector])game.addBuilding('tower',1,site.x,site.y).defenseSector=sector;
+      });
+      // 仅本关：初始编队落在最近的空闲平地，避开建筑、地形和其他出生单位。
+      const occupied=new Set();
+      const deploy=(type,team,x,y)=>{
+        let best=null,score=Infinity;
+        for(let yy=Math.max(0,Math.floor(y)-12);yy<Math.min(game.map.height,Math.floor(y)+13);yy++)
+          for(let xx=Math.max(0,Math.floor(x)-12);xx<Math.min(game.map.width,Math.floor(x)+13);xx++){
+            const cell=yy*game.map.width+xx,d=(xx+.5-x)**2+(yy+.5-y)**2;
+            if(d<score&&!occupied.has(cell)&&game.map.terrain[cell]===0&&walkable(game.map,game.buildings,xx,yy)){
+              best={x:xx+.5,y:yy+.5,cell};score=d;
+            }
+          }
+        if(!best)throw new Error('进攻关卡出生区域没有可用平地');
+        occupied.add(best.cell);return game.addUnit(type,team,best.x,best.y);
+      };
+      ATTACK_SETUP.playerWings.forEach((p,wing)=>{
+        for(const type of ['shield','archer'])for(let n=0;n<ATTACK_SETUP.playerPerType/ATTACK_SETUP.playerWings.length;n++){
+          const front=type==='shield';
+          const u=deploy(type,0,p.x+(front?2:-6)+(n%5)*1.6,p.y+(front?-7:1)+Math.floor(n/5)*1.6);
+          u.attackWing=wing;
+        }
+      });
+      for(let n=0;n<2;n++)deploy('armoredCar',0,22+n*3,70);
+      for(let n=0;n<2;n++)deploy('steamWalker',0,24+n*4,74);
+      game.map.camps.forEach((p,sector)=>{
+        const count=ATTACK_SETUP.sectorStrengths[sector],shields=count*.6;
         for(let n=0;n<count;n++){
           const front=n<shields,index=front?n:n-shields;
-          const u=game.addUnit(front?'shield':'archer',1,p.x+(front?-7:4)+(index%6)*1.4,p.y-6+Math.floor(index/6)*2);
+          const u=deploy(front?'shield':'archer',1,p.x+(front?-10:-2)+(index%6)*1.6,p.y+(front?4:-7)+Math.floor(index/6)*1.6);
           u.home={x:u.x,y:u.y};u.role='guard';u.defenseSector=sector;
         }
       });
-      game.addBuilding('mine',1,114.5,44.5).defenseSector=1;
-      game.addBuilding('factory',1,115.5,36.5).defenseSector=1;
       for(let n=0;n<ATTACK_SETUP.scouts;n++){
-        const p=game.map.camps[n],u=game.addUnit('wilddog',1,p.x-14,p.y);
-        u.home={x:p.x-4,y:p.y};u.role='scout';u.scoutIndex=n*3;
+        const sector=[0,2,1][n],p=game.map.camps[sector],start=game.map.patrolRoutes[n][0];
+        const u=deploy('wilddog',1,start.x,start.y);
+        u.home={x:p.x-4,y:p.y+4};u.role='scout';u.scoutIndex=0;u.patrolRoute=n;
       }
       return;
     }

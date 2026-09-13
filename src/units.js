@@ -1,3 +1,4 @@
+import {stepGarrison} from './garrison.js';
 import {updateEntityIndex} from './queries.js';
 import {STATS} from './data.js';
 import {createWalkability} from './pathfinding.js';
@@ -22,9 +23,10 @@ export function stepUnits(game,dt,entities,entityById){
   }finally{invalidateMovement(game);activePhases.delete(game);}
 }
 function stepUnit(game,u,dt,entities,entityById){
-  if(u.hp<=0)return;
+  if(u.hp<=0||u.garrisonId)return;
   u.cooldown=Math.max(0,u.cooldown-dt);
   u.repath-=dt;
+  if(u.garrisonTarget){stepGarrison(game,u,dt);return;}
   if(game.isFlying(u)){game.stepFlight(u,dt,entities,entityById);return;}
   if(u.order==='build'){stepBuilder(game,u,dt,entityById);return;}
   let target=u.holdFire?null:entityById.get(u.targetId);

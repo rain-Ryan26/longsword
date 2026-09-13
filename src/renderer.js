@@ -83,7 +83,7 @@ export class Renderer{
         if(!b.constructionPending){c.fillStyle=TEAM[b.team];c.beginPath();c.arc(0,-2.45,.25,0,Math.PI*2);c.fill();c.strokeStyle='#f4dfaa';c.beginPath();c.moveTo(-.45,-2.4);c.lineTo(.45,-2.4);c.moveTo(0,-2.75);c.lineTo(0,-2.05);c.stroke();}
         this.bar(c,0,-3.1,2,b.hp/b.maxHp,b.team);
         c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;
-        c.fillText('哨塔'+(b.awaitingEviction?' · 等待部队离开':b.constructionPending?(b.activeBuilders?` · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:' · 等待施工'):''),0,1.8);
+        c.fillText('哨塔'+(!b.constructionPending?` · ${state.units.filter(u=>u.hp>0&&u.garrisonId===b.id).length}/4`:'')+(b.awaitingEviction?' · 等待部队离开':b.constructionPending?(b.activeBuilders?` · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:' · 等待施工'):''),0,1.8);
         c.restore();continue;
       }
       c.save();c.translate(b.x,b.y);c.fillStyle='#0c171880';c.fillRect(-1.7,-1.4,4,3.8);c.fillStyle=b.team===0?'#35515a':'#644b3a';c.strokeStyle=TEAM[b.team];c.lineWidth=.12;c.fillRect(-1.8,-1.8,3.6,3.6);c.strokeRect(-1.8,-1.8,3.6,3.6);c.fillStyle=b.team===0?'#72999b':'#af8660';c.beginPath();c.moveTo(-2,-.7);c.lineTo(0,-2.4);c.lineTo(2,-.7);c.closePath();c.fill();c.fillStyle='#1d2c27';c.fillRect(-.45,.1,.9,1.7);c.strokeStyle=TEAM[b.team];c.beginPath();c.moveTo(1,-1.7);c.lineTo(1,-3.3);c.stroke();c.fillStyle=TEAM[b.team];c.fillRect(1,-3.3,1,.55);this.bar(c,0,-3.8,4,b.hp/b.maxHp,b.team);c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;c.fillText(STATS[b.type].name+(b.awaitingEviction?' · 等待部队离开':b.constructionPending?(b.activeBuilders?` · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:' · 等待施工'):''),0,2.8);
@@ -93,6 +93,7 @@ export class Renderer{
       if(b.team===1){c.fillStyle='#bdbb80';for(let i=0;i<4;i++){c.save();c.translate(b.x+3+i*.6,b.y+2+(i%2)*.4);c.rotate(.5);c.fillRect(-.25,-.35,.5,.7);c.restore();}}
     }
     for(const u of state.units){
+      if(u.garrisonId)continue;
       if(!all&&u.team!==team&&!visible[Math.floor(u.y)*W+Math.floor(u.x)])continue;
       const chosen=selected.has(u.id);if(chosen&&u.path.length){c.strokeStyle='#b4d6a94a';c.lineWidth=.08;c.setLineDash([.3,.3]);c.beginPath();c.moveTo(u.x,u.y);for(const p of u.path)c.lineTo(p.x,p.y);for(const p of (u.waypoints||[]))c.lineTo(p.x,p.y);c.stroke();c.setLineDash([]);}
       if(u.type==='pigeon'&&u.flying!==false&&!u.landing){
@@ -179,7 +180,7 @@ export class Renderer{
       const c=this.miniUnits.getContext('2d');c.drawImage(this.miniBackground,0,0);
       for(const n of state.map.resources||[])if(!state.buildings.some(b=>b.type==='mine'&&b.hp>0&&!b.constructionPending&&coversCell(b,n))&&(all||state.explored[team][Math.floor(n.y)*W+Math.floor(n.x)])){c.fillStyle='#dfbd64';c.fillRect(n.x*s-2,n.y*sy-2,s+4,s+4);}
       for(const n of state.map.foodPoints||[])if(all||state.explored[team][n.y*W+n.x]){c.fillStyle='#a6dc74';c.fillRect(n.x*s-2,n.y*sy-2,s+4,sy+4);}
-      for(const e of [...state.buildings,...state.units])if(e.hp>0&&(all||e.team===team||state.visible[team][Math.floor(e.y)*W+Math.floor(e.x)])){c.fillStyle=e.type==='mine'?'#f2ce45':TEAM[e.team];const r=e.building?(e.type==='tower'?2:3):1.5;c.fillRect(e.x*s-r,e.y*sy-r,r*2,r*2);}
+      for(const e of [...state.buildings,...state.units])if(e.hp>0&&!e.garrisonId&&(all||e.team===team||state.visible[team][Math.floor(e.y)*W+Math.floor(e.x)])){c.fillStyle=e.type==='mine'?'#f2ce45':TEAM[e.team];const r=e.building?(e.type==='tower'?2:3):1.5;c.fillRect(e.x*s-r,e.y*sy-r,r*2,r*2);}
       if(!all&&state.ghosts?.[team])for(const g of state.ghosts[team].buildings||[]){const i=Math.floor(g.y)*W+Math.floor(g.x);if(state.explored[team][i]&&!state.visible[team][i]){c.fillStyle='#c05555';const r=g.type==='tower'?2:3;c.fillRect(g.x*s-r,g.y*sy-r,r*2,r*2);}}
       if(!all&&state.ghosts?.[team])for(const g of state.ghosts[team].units||[]){const i=Math.floor(g.y)*W+Math.floor(g.x);if(state.explored[team][i]&&!state.visible[team][i]&&state.time-g.seenAt<60){c.fillStyle='#d06060';c.globalAlpha=state.time-g.seenAt<30?1:.5;c.fillRect(g.x*s-1.5,g.y*sy-1.5,s+3,sy+3);c.globalAlpha=1;}}
       this.miniUnitsKey=unitsKey;

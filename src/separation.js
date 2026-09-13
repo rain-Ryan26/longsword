@@ -6,7 +6,7 @@ const atRest=u=>u.targetId==null&&u.path.length===0&&u.order==='idle';
 const bucketKey=u=>`${Math.floor(u.x/CELL_SIZE)},${Math.floor(u.y/CELL_SIZE)}`;
 
 export function separateUnits(game,dt){
-  const units=game.units,buckets=new Map(),keys=[];
+  const units=game.units.filter(u=>!u.garrisonId&&u.hp>0),buckets=new Map(),keys=[];
   const canWalk=createWalkability(game.map,game.buildings);
   let maxRadius=.425;
   function update(index){

@@ -125,6 +125,55 @@ test('AI 建筑规划覆盖敌方半场四组资源，并为每组配置哨塔',
   }
 });
 
+test('AI 安全开局优先经济并派足四名就近工人',()=>{
+  const g=new Game('balanced');g.visible[1].fill(1);
+  const own=g.buildings.filter(b=>b.team===1),units=g.units.filter(u=>u.team===1);
+  const job=g.ai.planBuilding(g,own,units,own.find(b=>b.primary));
+  const nearest=[...units].sort((a,b)=>distance(a,job)-distance(b,job)).slice(0,4).map(u=>u.id).sort();
+  g.ai.update(g,3);
+  const site=g.buildings.find(b=>b.team===1&&b.constructionPending);
+  assert.ok(['factory','mine'].includes(site.type));
+  assert.deepEqual(units.filter(u=>u.order==='build').map(u=>u.id).sort(),nearest);
+});
+
+test('AI 跳过可见重兵经济点，敌军离开后恢复该点，迷雾部队不参与判断',()=>{
+  for(const team of [0,1]){
+    const g=new Game('balanced');g.visible[team].fill(1);
+    const ai=team===1?g.ai:new g.ai.constructor(0);
+    const own=g.buildings.filter(b=>b.team===team),base=own.find(b=>b.primary);
+    const plan=()=>ai.planBuilding(g,own,g.units.filter(u=>u.team===team),base);
+    const first=plan();
+    const enemies=Array.from({length:4},(_,i)=>g.addUnit('shield',1-team,first.x+6+i,first.y));
+    const alternative=plan();
+    assert.ok(alternative,'危险点不能阻塞所有安全扩张');
+    assert.ok(distance(first,alternative)>=10);
+    for(const enemy of enemies)g.visible[team][g.cellIndex(enemy.x,enemy.y)]=0;
+    assert.deepEqual(plan(),first,'不得利用迷雾中的敌军位置');
+    g.visible[team].fill(1);
+    for(const enemy of enemies){enemy.x=64;enemy.y=44;}
+    assert.deepEqual(plan(),first,'威胁离开后可重新规划该点');
+  }
+});
+
+test('AI 零散接敌仍建安全经济，基地重兵压境时暂停新建',()=>{
+  for(const count of [1,4]){
+    const g=new Game('balanced');g.visible[1].fill(1);
+    const base=g.buildings.find(b=>b.team===1&&b.primary);
+    for(let i=0;i<count;i++)g.addUnit('shield',0,base.x-9,base.y+6+i);
+    g.ai.update(g,3);
+    assert.equal(g.buildings.some(b=>b.team===1&&b.constructionPending),count===1);
+    assert.ok(g.aiQueue.length,'受威胁时继续补兵');
+  }
+});
+
+test('AI 经济选址避开可见敌方哨塔射程',()=>{
+  const g=new Game('balanced');g.visible[1].fill(1);
+  const own=g.buildings.filter(b=>b.team===1),base=own.find(b=>b.primary);
+  const plan=()=>g.ai.planBuilding(g,own,[],base);
+  const first=plan();g.addBuilding('tower',0,first.x+6,first.y);
+  const job=plan();assert.ok(job);assert.ok(distance(first,job)>10);
+});
+
 test('自然经济长局：探图、多点扩张、哨塔、扩人口、积兵进攻与胜负',()=>{
   const g=new Game('balanced');let scouted=false,pushed=false,builtMine=false,builtTower=false;
   for(let i=0;i<6000&&!g.result;i++){

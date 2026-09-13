@@ -1,3 +1,4 @@
+import {enterTower,exitTower,destroyGarrison} from './garrison.js';
 import {stepFlight} from './flight.js';
 import {indexEntities,nearbyEntities,earlierEntity} from './queries.js';
 import {stepUnits,move,invalidateMovement} from './units.js';
@@ -44,14 +45,14 @@ export class Game{
   }
   addBuilding(type,team,x,y){const b={id:this.nextId++,type,team,x,y,hp:STATS[type].hp,maxHp:STATS[type].hp,building:true,revealUntil:0,cooldown:0};this.buildings.push(b);return b;}
   addUnit(type,team,x,y){const p=nearestFree(this.map,this.buildings,x,y)||{x,y};const u={id:this.nextId++,type,team,...p,hp:STATS[type].hp,maxHp:STATS[type].hp,order:'idle',path:[],waypoints:[],allowMountains:false,allowForests:false,goal:null,targetId:null,cooldown:0,repath:0,holdFire:false,revealUntil:0,facing:0,flying:!!STATS[type].air};if(u.flying&&(u.x<5||u.x>this.map.width-5||u.y<5||u.y>this.map.height-5))u.facing=Math.atan2(this.map.height/2-u.y,this.map.width/2-u.x);this.units.push(u);return u;}
-  entities(){return [...this.units,...this.buildings].filter(e=>e.hp>0);}
-  canSee(team,e){return e.team===team||!!this.visible[team][this.cellIndex(e.x,e.y)];}
+  entities(){return [...this.units,...this.buildings].filter(e=>e.hp>0&&!e.garrisonId);}
+  canSee(team,e){if(e.garrisonId)return false;return e.team===team||!!this.visible[team][this.cellIndex(e.x,e.y)];}
   detectionRange(e){return this.isFlying(e)||!('visionGround' in STATS[e.type])?STATS[e.type].vision:STATS[e.type].visionGround;}
   movementSpeed(u){if(STATS[u.type].air)return this.isFlying(u)?STATS[u.type].speed:0;return STATS[u.type].speed*(MOVEMENT_MULTIPLIERS[this.map.terrain[this.cellIndex(u.x,u.y)]]??1);}
   // 分别返回是否避让山地、森林；BOT 默认可穿森林，单位在慢速地形中时先允许走出。
   terrainAvoidance(u){return this.isFlying(u)||this.map.terrain[this.cellIndex(u.x,u.y)]!==0?[false,false]:[!u.allowMountains,!(u.allowForests||u.team===1)];}
   isFlying(u){return !!STATS[u.type].air&&u.flying!==false;}
-  canEngage(u,e){if(STATS[u.type].airOnly)return this.isFlying(u)&&this.isFlying(e);return !this.isFlying(e)||this.isFlying(u)||!!STATS[u.type].antiAir;}
+  canEngage(u,e){if(u.garrisonId||e.garrisonId)return false;if(STATS[u.type].airOnly)return this.isFlying(u)&&this.isFlying(e);return !this.isFlying(e)||this.isFlying(u)||!!STATS[u.type].antiAir;}
   toggleFlight(ids,point){
     if(this.result)return;
     for(const u of this.units.filter(u=>ids.includes(u.id)&&u.team===0&&u.hp>0&&STATS[u.type].air)){
@@ -76,14 +77,14 @@ export class Game{
   updateDensity(){
     const size=this.map.width*this.map.height;
     if(!this.density||this.density.length!==size)this.density=new Float32Array(size);else this.density.fill(0);
-    for(const u of this.units)if(u.hp>0&&!this.isFlying(u))this.density[this.cellIndex(u.x,u.y)]++;
+    for(const u of this.units)if(u.hp>0&&!u.garrisonId&&!this.isFlying(u))this.density[this.cellIndex(u.x,u.y)]++;
   }
   updateVision(){this.vision.update(this);}
   // 残影：离开视野后保留最后一次看到的敌方实体快照；建筑永久保留，部队 60 秒淡化。
   updateGhosts(){
     const livingBuildings=new Set(this.buildings.filter(b=>b.hp>0).map(b=>b.id));
     const occupied=[new Set(),new Set()];
-    for(const u of this.units)if(u.hp>0)occupied[u.team].add(this.cellIndex(u.x,u.y));
+    for(const u of this.units)if(u.hp>0&&!u.garrisonId)occupied[u.team].add(this.cellIndex(u.x,u.y));
     for(let t=0;t<2;t++){
       const vis=this.visible[t],enemy=1-t,{buildings:bmap,units:umap}=this.ghosts[t];
       for(const [id,g] of bmap)if(vis[this.cellIndex(g.x,g.y)]&&!livingBuildings.has(id))bmap.delete(id);
@@ -103,11 +104,11 @@ export class Game{
     const idSet=new Set(ids);
     const commandTarget=targetId?this.entities().find(e=>e.id===targetId&&e.team!==team&&this.canSee(team,e)):null;
     const canWalk=createWalkability(this.map,this.buildings);
-    const selected=this.units.filter(u=>idSet.has(u.id)&&u.team===team&&u.hp>0),cols=Math.ceil(Math.sqrt(selected.length));
+    const selected=this.units.filter(u=>idSet.has(u.id)&&u.team===team&&u.hp>0&&!u.garrisonId),cols=Math.ceil(Math.sqrt(selected.length));
     selected.forEach((u,i)=>{
       if(kind==='stop'){u.holdFire=true;u.targetId=null;return;}
       if(STATS[u.type].air&&!this.isFlying(u)&&(kind==='move'||kind==='attack')){u.flying=true;if(u.x<5||u.x>this.map.width-5||u.y<5||u.y>this.map.height-5)u.facing=Math.atan2(this.map.height/2-u.y,this.map.width/2-u.x);}
-      u.buildingId=null;u.landing=null;u.orbit=null;u.landingEscape=false;
+      u.garrisonTarget=null;u.buildingId=null;u.landing=null;u.orbit=null;u.landingEscape=false;
       if(!append){u.allowMountains=kind!=='stop'&&allowMountains;u.allowForests=kind!=='stop'&&allowMountains;}
       const avoidance=this.terrainAvoidance(u);
       const p=kind==='stop'?null:this.isFlying(u)?{x:point.x,y:point.y}:nearestFree(this.map,this.buildings,point.x+(i%cols-(cols-1)/2)*1.2,point.y+(Math.floor(i/cols)-(Math.ceil(selected.length/cols)-1)/2)*1.2,...avoidance,canWalk);
@@ -138,17 +139,17 @@ export class Game{
     const c=buildingCells({type,x:p.x,y:p.y});
     if(this.buildings.some(b=>{if(b.hp<=0)return false;const o=buildingCells(b);return c.x0<=o.x1&&o.x0<=c.x1&&c.y0<=o.y1&&o.y0<=c.y1;}))return {...p,error:'与现有建筑冲突'};
     for(let y=c.y0;y<=c.y1;y++)for(let x=c.x0;x<=c.x1;x++)if(!this.visible[team][this.cellIndex(x,y)])return {...p,error:'请在己方当前视野内建造'};
-    const inCells=u=>u.hp>0&&!this.isFlying(u)&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1;
+    const inCells=u=>u.hp>0&&!u.garrisonId&&!this.isFlying(u)&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1;
     if(this.units.some(u=>inCells(u)&&(u.team!==team||STATS[u.type].movable===false||STATS[u.type].air)))return {...p,error:'请先移开占地内的部队'};
     return {...p,evict:this.units.some(u=>inCells(u))};
   }
   build(ids,type,point,team=0){
     if(this.result)return '战局已结束';
-    if(!this.units.some(u=>ids.includes(u.id)&&u.team===team&&u.hp>0))return '请先选择部队';
+    if(!this.units.some(u=>ids.includes(u.id)&&u.team===team&&u.hp>0&&!u.garrisonId))return '请先选择部队';
     const p=this.placement(type,point,team);if(p.error)return p.error;
     const s=STATS[type];if(this[team===0?'food':'aiFood']<s.food||this[team===0?'ore':'aiOre']<s.ore)return '资源不足';
     const site={...p,hp:s.hp,team,type},c=buildingCells(site);
-    const evictees=this.units.filter(u=>u.hp>0&&!this.isFlying(u)&&u.team===team&&STATS[u.type].movable!==false&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1);
+    const evictees=this.units.filter(u=>u.hp>0&&!u.garrisonId&&!this.isFlying(u)&&u.team===team&&STATS[u.type].movable!==false&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1);
     if(!evictees.length){
       const assignments=this.builderAssignments(ids,site);
       if(!assignments.length)return '选中部队无法到达建筑周边';
@@ -187,7 +188,7 @@ export class Game{
       if(!spots.some(q=>distance(p,q)<.1)&&!assigned.some(u=>u.goal&&distance(u.goal,p)<.8))spots.push(p);
     }
     const result=[];
-    for(const u of this.units.filter(u=>ids.includes(u.id)&&u.team===b.team&&u.hp>0&&!STATS[u.type].air&&!assigned.includes(u)).sort((a,c)=>distance(a,b)-distance(c,b))){
+    for(const u of this.units.filter(u=>ids.includes(u.id)&&u.team===b.team&&u.hp>0&&!u.garrisonId&&!STATS[u.type].air&&!assigned.includes(u)).sort((a,c)=>distance(a,b)-distance(c,b))){
       if(result.length+assigned.length>=(STATS[b.type].maxBuilders||4))break;
       for(const p of [...spots].sort((a,c)=>distance(a,u)-distance(c,u))){
         if(!walkable(this.map,buildings,Math.floor(p.x),Math.floor(p.y)))continue;
@@ -199,7 +200,7 @@ export class Game{
     return result;
   }
   dispatchBuilders(b,assignments){
-    for(const {u,p,path} of assignments){u.buildingId=b.id;u.order='build';u.goal=p;u.path=path;u.waypoints=[];u.targetId=null;u.holdFire=false;u.allowMountains=true;u.allowForests=true;u.repath=1;}
+    for(const {u,p,path} of assignments){u.garrisonTarget=null;u.buildingId=b.id;u.order='build';u.goal=p;u.path=path;u.waypoints=[];u.targetId=null;u.holdFire=false;u.allowMountains=true;u.allowForests=true;u.repath=1;}
     this.onBuildersDispatched?.(assignments.map(({u})=>u.id));
   }
   assistBuild(ids,id){
@@ -212,11 +213,13 @@ export class Game{
   }
   releaseBuilder(u){u.buildingId=null;u.order='idle';u.goal=null;u.path=[];u.waypoints=[];u.allowMountains=false;u.allowForests=false;u.holdFire=false;}
   releaseBuilders(b){for(const u of this.units){if(u.buildingId===b.id)this.releaseBuilder(u);else if(u.leavingId===b.id){u.leavingId=null;u.allowMountains=false;u.allowForests=false;}}}
+  enterTower(ids,id,team=0){return enterTower(this,ids,id,team);}
+  exitTower(id,team=0){return exitTower(this,id,team);}
   demolish(id){
     if(this.result)return '战局已结束';
     const b=this.buildings.find(b=>b.id===id&&b.team===0&&b.hp>0);
     if(!b)return '请选择己方建筑';
-    b.hp=0;this.releaseBuilders(b);if(b.primary&&!['defend','balanced'].includes(this.level)){this.queue=[];this.result='defeat';}
+    b.hp=0;destroyGarrison(this,b.id);this.releaseBuilders(b);if(b.primary&&!['defend','balanced'].includes(this.level)){this.queue=[];this.result='defeat';}
     if(['defend','balanced'].includes(this.level)&&!this.buildings.some(b=>b.team===0&&b.hp>0))this.result='defeat';
     this.revision++;this.updateVision();return null;
   }
@@ -312,9 +315,9 @@ export class Game{
       let productionTime=dt;
       if(b.awaitingEviction){
         const c=buildingCells(b);
-        const any=this.units.some(u=>u.hp>0&&!this.isFlying(u)&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1);
+        const any=this.units.some(u=>u.hp>0&&!u.garrisonId&&!this.isFlying(u)&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1);
         if(any){
-          for(const u of this.units.filter(u=>u.hp>0&&!this.isFlying(u)&&u.team===b.team&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1)){
+          for(const u of this.units.filter(u=>u.hp>0&&!u.garrisonId&&!this.isFlying(u)&&u.team===b.team&&Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1)){
             u.leavingId=b.id;
             if(u.order!=='move'||!u.path.length){
               const target=this.evictTarget(b,u);
@@ -343,7 +346,7 @@ export class Game{
       // 基地本身不生产任何资源，食物与矿产均需依赖采矿场 / 食物厂。
       if(b.type==='base'&&productionTime>0){
         const s=STATS.base;
-        const patients=this.units.filter(u=>u.team===b.team&&u.hp>0&&u.hp<u.maxHp&&!healed.has(u.id)&&distance(u,b)<=s.healRange)
+        const patients=this.units.filter(u=>u.team===b.team&&u.hp>0&&!u.garrisonId&&u.hp<u.maxHp&&!healed.has(u.id)&&distance(u,b)<=s.healRange)
           .sort((a,c)=>a.hp/a.maxHp-c.hp/c.maxHp||a.id-c.id).slice(0,s.healTargets);
         for(const u of patients){u.hp=Math.min(u.maxHp,u.hp+s.healRate*productionTime);u.healing=true;healed.add(u.id);}
       }
@@ -362,7 +365,7 @@ export class Game{
   stepProjectiles(dt,entities,entityById){
     for(const projectile of this.projectiles){
       const target=entityById.get(projectile.targetId);
-      if(!target||target.hp<=0){projectile.life=0;continue;}
+      if(!target||target.hp<=0||target.garrisonId){projectile.life=0;continue;}
       const d=distance(projectile,target),step=22*dt;
       projectile.life-=dt;
       if(d<=step){
@@ -382,6 +385,7 @@ export class Game{
     }
   }
   cleanup(dt){
+    for(const b of this.buildings)if(b.hp<=0)destroyGarrison(this,b.id);
     this.projectiles=this.projectiles.filter(p=>p.life>0);
     this.effects.forEach(e=>e.life-=dt);
     this.effects=this.effects.filter(e=>e.life>0);
@@ -401,7 +405,7 @@ export class Game{
     else if(this.buildings.filter(b=>b.team===1).every(b=>b.hp<=0))this.result='victory';
   }
   stepFlight(u,dt,entities,entityById){stepFlight(this,u,dt,entities,entityById);}
-  damage(e,amount){e.hp=Math.max(0,e.hp-Math.max(1,amount-STATS[e.type].armor));e.lastDamagedAt=this.time;if(e.building&&e.hp<=0)invalidateMovement(this);}
+  damage(e,amount){if(e.garrisonId)return;e.hp=Math.max(0,e.hp-Math.max(1,amount-STATS[e.type].armor));e.lastDamagedAt=this.time;if(e.building&&e.hp<=0){invalidateMovement(this);destroyGarrison(this,e.id);}}
   consumeAudioEvents(){const events=this.audioEvents;this.audioEvents=[];return events;}
   move(u,amount){move(this,u,amount);}
   separate(dt){separateUnits(this,dt);}

@@ -38,16 +38,17 @@ export function createMap(){
   // resources 坐标为资源区块（格子）编号，矿点覆盖该 1×1 格子
   return {version:1,width:W,height:H,terrain,resources:[{x:24,y:40}],camps:[{x:76,y:18},{x:77,y:46}],patrol:[{x:57,y:25},{x:70,y:27},{x:72,y:37},{x:58,y:38}]};
 }
-// 进攻关卡：西东战场，三处基地分守上、中、下路。
+// 进攻关卡复用均衡地形与资源，仅添加攻坚据点和分路巡逻。
 export function createMapAttack(){
-  const width=128,height=88,terrain=new Array(width*height).fill(0);
-  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
-    const ellipse=(cx,cy,rx,ry)=>((x-cx)/rx)**2+((y-cy)/ry)**2<1;
-    const mountain=ellipse(62,22,6,14)||ellipse(62,66,6,14);
-    const forest=ellipse(37,18,8,6)||ellipse(83,70,8,6)||ellipse(65,44,7,5);
-    terrain[y*width+x]=mountain?1:forest?2:0;
-  }
-  return {version:1,width,height,terrain,resources:[{x:22,y:52},{x:114,y:44},{x:50,y:12},{x:50,y:76}],camps:[{x:104,y:16},{x:108,y:44},{x:104,y:72}],patrol:[{x:76,y:16},{x:52,y:12},{x:35,y:36},{x:76,y:44},{x:48,y:44},{x:35,y:52},{x:76,y:72},{x:52,y:76}],spawns:[{x:12,y:44},{x:108,y:44}]};
+  const map=createMapBalanced();
+  map.camps=[{x:86,y:12},{x:104,y:60},{x:116,y:12}];
+  map.patrolRoutes=[
+    [{x:86,y:24},{x:61,y:27},{x:49,y:18},{x:85,y:8}],
+    [{x:100,y:30},{x:91,y:42},{x:68,y:44},{x:94,y:24}],
+    [{x:104,y:72},{x:75,y:77},{x:67,y:59},{x:96,y:64}]
+  ];
+  map.patrol=map.patrolRoutes.flat();
+  return map;
 }
 // 防守关卡：中部山体纵墙仅留缺口，敌军须经缺口进攻我方基地
 export function createMapDefend(){

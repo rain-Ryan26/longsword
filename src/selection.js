@@ -1,5 +1,5 @@
 import {STATS} from './data.js';
-export const isOffensiveMovableUnit=u=>u.team===0&&u.hp>0&&u.type!=='pigeon'&&STATS[u.type]?.movable===true&&STATS[u.type].damage>0;
+export const isOffensiveMovableUnit=u=>u.team===0&&u.hp>0&&!u.garrisonId&&u.type!=='pigeon'&&STATS[u.type]?.movable===true&&STATS[u.type].damage>0;
 
 export class ControlGroups{
   constructor(){this.groups=new Map();}

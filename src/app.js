@@ -73,7 +73,7 @@ window.addEventListener('pagehide',()=>{if(receiver)channel.postMessage(receiver
 if(observer){document.title='longsword · 独立观察';$('session-label').textContent='独立观察 · 共享战局';$('connection').hidden=false;for(const id of ['pause','speed','restart','again'])$(id).disabled=true;$('level-select').hidden=true;channel.postMessage(receiver.message());setAttack(false);}
 function togglePause(){if(observer)return;paused=!paused;acc=0;last=performance.now();sendSnapshot();updateHud();}
 $('pause').onclick=togglePause;
-$('speed').onclick=()=>{speed=speed===1?2:1;sendSnapshot();updateHud();};
+$('speed').onclick=()=>{speed=speed===1?2:speed===2?4:1;sendSnapshot();updateHud();};
 $('ai-control').onclick=()=>{
   if(observer)return;
   aiControl=!aiControl;
@@ -90,7 +90,7 @@ $('launch-attack').onclick=()=>{
 };
 $('ai-control').hidden=observer||level!=='balanced';
 function applyLevel(){const info=LEVELS[level],intro=$('mission-intro');$('mission-title').textContent=info.title;$('mission-desc').textContent=info.desc;clearTimeout(missionIntroTimer);intro.classList.remove('hidden');missionIntroTimer=setTimeout(()=>intro.classList.add('hidden'),3000);$('ai-control').hidden=observer||level!=='balanced';}
-function restart(){if(observer)return;Object.assign(game,new Game(level));closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;aiControl=false;$('ai-control').classList.remove('active');$('ai-control').textContent='AI 控制';game.setPlayerAIControl(false);paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera=level==='balanced'?{x:24,y:66,zoom:13}:{x:25,y:32,zoom:13};setAttack(false);applyLevel();sendSnapshot();updateHud();toast('新行动开始');}
+function restart(){if(observer)return;Object.assign(game,new Game(level));closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;aiControl=false;$('ai-control').classList.remove('active');$('ai-control').textContent='AI 控制';game.setPlayerAIControl(false);paused=false;speed=1;acc=0;state=game.snapshot();renderer.camera=['balanced','attack'].includes(level)?{x:24,y:66,zoom:13}:{x:25,y:32,zoom:13};setAttack(false);applyLevel();sendSnapshot();updateHud();toast('新行动开始');}
 $('restart').onclick=restart;$('again').onclick=restart;
 $('choose-level').onclick=()=>{if(observer)return;$('level-select').hidden=false;};
 for(const card of document.querySelectorAll('.level-card'))card.onclick=()=>{
@@ -125,7 +125,7 @@ const hud=createHud({$,observer,renderer});
 function updateHud(){
   if(!state)return;
   if(game)state=game.snapshot();
-  const living=new Set(state.units.map(u=>u.id));
+  const living=new Set(state.units.filter(u=>u.hp>0&&!u.garrisonId).map(u=>u.id));
   for(const id of selected)if(!living.has(id))selected.delete(id);
   const building=state.buildings.find(b=>b.id===interaction.selectedBuilding&&b.hp>0);
   if((interaction.selectedBuilding&&!building)||(interaction.buildMenu&&!selected.size)||

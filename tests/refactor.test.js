@@ -245,6 +245,18 @@ test('提取后的输入处理覆盖选择、编队、取消、暂停及观察�
     assert.equal(delayed.order,'build');assert.equal(ctx.selected.has(delayed.id),false);
     ctx.selected.add(delayed.id);game.stepBuildings(0);
     assert.equal(ctx.selected.has(delayed.id),true);
+    // 右键完工哨塔入驻；驻兵不被 F2 选中；选塔 E 退出。
+    const shelter=game.addBuilding('tower',0,50,26),resident=game.addUnit('shield',0,48.5,26.5);
+    ctx.selected=new Set([resident.id]);ctx.lastRightClick=null;interaction.enter('select');
+    handlers.get('game:pointerdown')({button:2,clientX:50,clientY:26,pointerId:1,preventDefault:noop});
+    assert.equal(resident.garrisonTarget,shelter.id);
+    for(let n=0;n<40;n++)game.step(.05);
+    assert.equal(resident.garrisonId,shelter.id);
+    key('F2');assert.equal(ctx.selected.has(resident.id),false);
+    handlers.get('game:pointerdown')({button:0,clientX:50,clientY:26,pointerId:1});
+    handlers.get('game:pointerup')({pointerId:1});
+    assert.equal(interaction.selectedBuilding,shelter.id);
+    key('e');assert.equal(resident.garrisonId,null);
     ctx.observer=true;bindInput(ctx);ctx.selected.clear();key('F2');assert.equal(ctx.selected.size,0);
     key(' ');assert.equal(pauses,1);
     ctx.observer=false;bindInput(ctx);unit.hp=0;key('1');assert.equal(ctx.selected.size,0);
