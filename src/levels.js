@@ -1,4 +1,5 @@
 import {walkable} from './pathfinding.js';
+import {createMapRandomAttack} from './random-map.js';
 import {createMap,createMapAttack,createMapBalanced,createMapDefend} from './data.js';
 
 export const ATTACK_SETUP={
@@ -11,10 +12,12 @@ export const LEVELS={
   demo:{title:'夺下双营地',desc:'侦察东部资源点，摧毁两座敌方营地。',toast:'框选蓝色部队，按 A 后点击目的地。'},
   balanced:{title:'均衡对抗',desc:'扩张经济、集结部队，摧毁敌方全部建筑。',toast:'双方各 6 盾兵、6 弓箭兵；绿色食物点上的食物厂产量翻倍。'},
   attack:{title:'突破三处据点',desc:'60 盾兵、60 弓箭兵、2 装甲车、2 蒸汽步行机，摧毁敌方全部建筑。',toast:'三路部队从左下出发；敌方三据点驻守 30 / 50 / 70 人，共 9 座哨塔，野狗分路巡逻。'},
+  randomAttack:{title:'随机进攻',desc:'在随机山林与资源布局中突破三处敌营，摧毁敌方全部建筑。',toast:'沿用进攻兵力与三据点联防；每次重开生成新的山林、资源和敌营。'},
   defend:{title:'抵御两波进攻',desc:'准备 120 秒，敌军首波 70 盾兵 + 70 弓兵，第二波 35 盾 + 35 弓。我方 60 盾 + 60 弓 + 2 蒸汽步行机 + 4 装甲车。保留建筑并全灭两波敌军。',toast:'趁准备期布防；第一波全灭后休整 30 秒迎接第二波。'}
 };
 
-export function createLevelMap(level){
+export function createLevelMap(level,seed){
+  if(level==='randomAttack')return createMapRandomAttack(seed);
   if(level==='sandbox'){const map={version:1,width:96,height:64,terrain:new Array(96*64).fill(0),resources:[],foodPoints:[],camps:[],patrol:[]};for(let y=0;y<64;y++)for(let x=0;x<96;x++)if(Math.abs(x+.5-48)<4&&(y<26||y>39))map.terrain[y*96+x]=1;return map;}
   const factory={balanced:createMapBalanced,attack:createMapAttack,defend:createMapDefend}[level]||createMap;
   return factory();
@@ -57,7 +60,7 @@ export function setupLevel(game){
       for(let n=0;n<2;n++)game.addUnit('steamWalker',0,25+n*4,15);
       return;
     }
-    if(game.level==='attack'){
+    if(game.level==='attack'||game.level==='randomAttack'){
       const home=game.map.spawns[0];
       game.addBuilding('base',0,home.x,home.y).primary=true;
       game.addBuilding('machineFactory',0,6,76);
@@ -69,7 +72,7 @@ export function setupLevel(game){
       }
       game.map.camps.forEach((p,sector)=>{
         const base=game.addBuilding('base',1,p.x,p.y);base.defenseSector=sector;base.primary=sector===2;
-        for(const site of ATTACK_SETUP.towers[sector])game.addBuilding('tower',1,site.x,site.y).defenseSector=sector;
+        for(const site of (game.map.towers||ATTACK_SETUP.towers)[sector])game.addBuilding('tower',1,site.x,site.y).defenseSector=sector;
       });
       // 仅本关：初始编队落在最近的空闲平地，避开建筑、地形和其他出生单位。
       const occupied=new Set();

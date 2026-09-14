@@ -22,7 +22,7 @@ test('均衡地图：四片山脉、九组资源、对角出生与独立地图�
   for(const team of [0,1]){
     const units=g.units.filter(u=>u.team===team);
     assert.equal(units.filter(u=>u.type==='shield').length,6);assert.equal(units.filter(u=>u.type==='archer').length,6);
-    assert.equal(g.foodRate(g.buildings.find(b=>b.team===team&&b.type==='factory')),6);
+    assert.equal(g.foodRate(g.buildings.find(b=>b.team===team&&b.type==='factory')),5);
     for(const p of [...resources,...foodPoints])assert.ok(findPath(g.map,g.buildings,units[0],p,true).length>0);
   }
   assert.equal(g.aiFood,500);assert.equal(g.aiOre,500);assert.equal(g.food,1000);assert.equal(g.ore,1000);
@@ -45,17 +45,18 @@ test('均衡对抗：初始基地失去不判负，己方建筑全毁才失败',
   }
 });
 
-test('食物点：双方翻倍、普通产出、施工不产出、拆毁后资源保留',()=>{
+test('食物点：双方加成、普通产出、施工不产出、拆毁后资源保留',()=>{
   const g=new Game('balanced');g.ai=null;
   const factories=g.buildings.filter(b=>b.type==='factory');
-  const normal=g.addBuilding('factory',0,35.5,75.5);assert.equal(g.foodRate(normal),3);
+  for(const factory of factories)assert.equal(g.foodRate(factory),5);
+  const normal=g.addBuilding('factory',0,35.5,75.5);assert.equal(g.foodRate(normal),2);
   const f0=g.food,f1=g.aiFood;advance(g,1);
-  assert.ok(Math.abs(g.food-f0-9)<1e-6);assert.ok(Math.abs(g.aiFood-f1-6)<1e-6);
+  assert.ok(Math.abs(g.food-f0-7)<1e-6);assert.ok(Math.abs(g.aiFood-f1-5)<1e-6);
   factories[1].constructionPending=true;factories[1].constructionRemaining=180;
   const before=g.aiFood;advance(g,1);assert.equal(g.aiFood,before);
   const node={...g.map.foodPoints[0]};factories[0].hp=0;
   assert.deepEqual(g.map.foodPoints[0],node);
-  assert.equal(g.foodRate(g.addBuilding('factory',0,node.x+.5,node.y+.5)),6);
+  assert.equal(g.foodRate(g.addBuilding('factory',0,node.x+.5,node.y+.5)),5);
 });
 
 test('AI 建造允许预定、检查敌方占地、独立扣费，自动让位并完成施工',()=>{
@@ -178,6 +179,8 @@ test('AI 经济选址避开可见敌方哨塔射程',()=>{
 
 test('缺粮进攻：没有可用食物点时留钱、分工并实际完成普通食物厂',()=>{
   const g=new Game('balanced');
+  // 只保留双方已被初始食物厂覆盖的点，侦察后也不会出现空闲食物点。
+  g.map.foodPoints=g.map.foodPoints.slice(0,2);
   const base=g.buildings.find(b=>b.team===1&&b.primary);
   // 保留本土视野，前线主力持续进攻；加固玩家建筑让验证不被提前结算打断。
   for(const b of g.buildings.filter(b=>b.team===0))b.hp=b.maxHp=1e8;
@@ -185,13 +188,13 @@ test('缺粮进攻：没有可用食物点时留钱、分工并实际完成普�
   g.aiFood=80;g.aiOre=3000;g.ai.attacking=true;
   const before=g.buildings.filter(b=>b.team===1&&b.type==='factory').length;
   g.ai.update(g,3);
-  assert.equal(g.aiQueue.length,0,'先攒够食物厂的 100 食物，不被补兵消费');
+  assert.equal(g.aiQueue.length,0,'先攒够食物厂的 200 食物，不被补兵消费');
   assert.equal(g.ai.economicWorkers.size,4);
   assert.ok(g.units.filter(u=>u.team===1&&!g.ai.economicWorkers.has(u.id)).some(u=>u.aiOrderKey?.startsWith('attack:')));
   advance(g,90);
   const factories=g.buildings.filter(b=>b.team===1&&b.type==='factory'&&!b.constructionPending);
   assert.ok(factories.length>before,'必须实际完工，不能只检查 planBuilding 返回值');
-  assert.ok(factories.some(b=>g.foodRate(b)===3),'普通地块也能补食物产能');
+  assert.ok(factories.some(b=>g.foodRate(b)===2),'普通地块也能补食物产能');
   assert.ok(g.ai.attacking,'建设不能停止主力进攻');
 });
 
@@ -207,7 +210,7 @@ test('严重缺粮优先于第三组配套矿场和人口扩基，食物产能�
 });
 
 test('危险的旧工地不阻塞后方缺粮救急，且不重复开启更多工地',()=>{
-  const g=new Game('balanced');g.visible[1].fill(1);g.aiFood=150;g.aiOre=3000;
+  const g=new Game('balanced');g.visible[1].fill(1);g.aiFood=200;g.aiOre=3000;
   const site=g.addBuilding('mine',1,64.5,44.5);site.constructionPending=true;site.constructionRemaining=180;
   for(let i=0;i<4;i++)g.addUnit('shield',0,site.x+6+i,site.y);
   g.ai.update(g,3);
@@ -285,7 +288,10 @@ test('并行规划计入安全在建食物收入，工人不足时不铺空工�
   const g=new Game('balanced');g.aiFood=50;g.aiOre=3000;
   const own=g.buildings.filter(b=>b.team===1);
   assert.equal(g.ai.foodShortage(g,own),true);
-  for(let i=0;i<5;i++)own.push({type:'factory',x:100+i*4,y:30,team:1,constructionPending:true});
+  // 已有资源点产能 5，加七座普通在建厂后为 19，仍低于 20 的需求。
+  for(let i=0;i<7;i++)own.push({type:'factory',x:96+i*3,y:30,team:1,constructionPending:true});
+  assert.equal(g.ai.foodShortage(g,own),true);
+  own.push({type:'factory',x:117,y:30,team:1,constructionPending:true});
   assert.equal(g.ai.foodShortage(g,own),false);
   const h=new Game('balanced');h.aiFood=3000;h.aiOre=3000;
   h.ai.update(h,3);

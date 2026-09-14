@@ -8,7 +8,7 @@ const advance=(g,t)=>{for(let n=0;n<t/.05;n++)g.step(.05);};
 test('各建筑采用当前建造成本，且统一为 5 点护甲',()=>{
   assert.deepEqual(
     ['base','mine','tower','factory','machineFactory'].map(type=>[type,STATS[type].ore,STATS[type].food]),
-    [['base',400,300],['mine',200,100],['tower',150,150],['factory',200,100],['machineFactory',400,300]]
+    [['base',400,300],['mine',200,200],['tower',150,150],['factory',200,200],['machineFactory',400,300]]
   );
   assert.ok(['base','mine','tower','factory','machineFactory'].every(type=>STATS[type].armor===5));
   assert.deepEqual([STATS.machineFactory.hp,STATS.machineFactory.buildTime,STATS.machineFactory.maxBuilders],[1200,480,8]);
@@ -362,9 +362,9 @@ test('BOT 寻路自动避让山地但允许穿越森林',()=>{
 
 test('采矿场选址、扣费、产矿、拆除与矿点复用',()=>{
   const g=new Game();g.addUnit('shield',0,24,36);g.updateVision();const ids=[g.units.find(u=>u.team===0).id],node=g.map.resources[0];
-  assert.ok(node.x<W/2);g.food=100;g.ore=200;
+  assert.ok(node.x<W/2);g.food=200;g.ore=200;
   assert.match(g.build(ids,'mine',{x:30,y:30}),/矿产资源点/);
-  assert.equal(g.food,100);assert.equal(g.ore,200);
+  assert.equal(g.food,200);assert.equal(g.ore,200);
   assert.equal(g.build(ids,'mine',node),null);
   const mine=g.buildings.at(-1);assert.equal(mine.type,'mine');assert.equal(g.food,0);assert.equal(g.ore,0);
   assert.equal(walkable(g.map,g.buildings,node.x,node.y),false);

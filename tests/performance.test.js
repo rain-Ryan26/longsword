@@ -39,6 +39,16 @@ test('切换大地图重建迷雾尺寸，小地图坐标与观察窗口同步�
   Object.assign(f.game,new Game());f.draw();assert.equal(f.renderer.fogCanvas.width,96);assert.equal(f.renderer.fogCanvas.height,64);
 });
 
+test('随机进攻重开后重绘地形与迷雾',()=>{
+  const f=fixture();
+  Object.assign(f.game,new Game('randomAttack',{seed:1}));f.draw();
+  const previous=f.game.map;
+  f.calls.length=0;Object.assign(f.game,new Game('randomAttack',{seed:2}));
+  assert.equal(f.draw(),true);assert.notDeepEqual(previous.terrain,f.game.map.terrain);
+  assert.equal(f.renderer.fogCanvas.width,128);assert.equal(f.renderer.fogCanvas.height,88);
+  assert.ok(f.calls.some(c=>c.name==='putImageData'));
+});
+
 test('视野原地修改、切换阵营、地图替换使缓存更新',()=>{
   const f=fixture();f.draw();
   f.game.updateVision();f.calls.length=0;f.draw();assert.equal(f.calls.filter(c=>c.name==='putImageData').length,1);
