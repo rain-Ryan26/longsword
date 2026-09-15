@@ -1,5 +1,6 @@
 import {STATS} from './data.js';
 import {isOffensiveMovableUnit,nearestEntity} from './selection.js';
+import {canConstruct} from './rules.js';
 
 export function bindInput(ctx){
   const {game,observer,renderer,interaction,$,toast,closeBuild,setAttack,renderMode,updateHud,
@@ -7,6 +8,7 @@ export function bindInput(ctx){
   if(!observer)game.onBuildersDispatched=ids=>{for(const id of ids)ctx.selected.delete(id);};
   function local(event){const rect=$('game').getBoundingClientRect();return {x:event.clientX-rect.left,y:event.clientY-rect.top};}
   function visibleToView(e){const team=ctx.view===2?1:0;return ctx.view===1||e.team===team||ctx.state.visible[team][Math.floor(e.y)*ctx.state.map.width+Math.floor(e.x)];}
+  function enemyAt(world){return game.entities().find(e=>e.team===1&&game.canSee(0,e)&&Math.hypot(e.x-world.x,e.y-world.y)<(e.building?(STATS[e.type].halfSize||2):1));}
   function issue(p,attack,append=false,allowMountains=false,groundOnly=false){
     ctx.lastUnitClick=null;
     if(!ctx.selected.size){toast('请先选择部队');setAttack(false);return;}
@@ -16,10 +18,10 @@ export function bindInput(ctx){
     const world=renderer.world(p.x,p.y);
     if(world.x<0||world.y<0||world.x>=ctx.state.map.width||world.y>=ctx.state.map.height){toast('请在地图范围内下达指令');return;}
     const site=!attack&&!append&&!allowMountains&&game.buildings.find(b=>b.team===0&&b.hp>0&&b.constructionPending&&Math.abs(b.x-world.x)<(STATS[b.type].halfSize||2)&&Math.abs(b.y-world.y)<(STATS[b.type].halfSize||2));
-    if(site){const airIds=ids.filter(id=>STATS[unitsById.get(id)?.type]?.air),builders=ids.filter(id=>!airIds.includes(id));if(airIds.length)game.command(airIds,'move',world);if(builders.length){const error=game.assistBuild(builders,site.id);if(!error)signal('assist');toast(error||'已派遣部队前往施工');}setAttack(false);updateHud();return;}
+    if(site){const builders=ids.filter(id=>canConstruct(unitsById.get(id))),nonBuilders=ids.filter(id=>!builders.includes(id));if(nonBuilders.length)game.command(nonBuilders,'move',world);if(builders.length){const error=game.assistBuild(builders,site.id);if(!error)signal('assist');toast(error||'已派遣部队前往施工');}else toast('选中单位不能参与施工');setAttack(false);updateHud();return;}
     const tower=!attack&&!append&&!allowMountains&&game.buildings.find(b=>b.team===0&&b.hp>0&&b.type==='tower'&&!b.constructionPending&&Math.abs(b.x-world.x)<STATS.tower.halfSize&&Math.abs(b.y-world.y)<STATS.tower.halfSize);
     if(tower){const error=game.enterTower(ids,tower.id);if(!error)signal('garrison');toast(error||'已派遣部队入驻哨塔');setAttack(false);updateHud();return;}
-    const target=append||allowMountains?null:game.entities().find(e=>e.team===1&&game.canSee(0,e)&&Math.hypot(e.x-world.x,e.y-world.y)<(e.building?(STATS[e.type].halfSize||2):1));
+    const target=append||allowMountains?null:enemyAt(world);
     game.command(ids,attack?'attack':target?'attack':'move',world,target?.id,append,allowMountains);
     signal(attack?'attackMove':target?'attackTarget':append?'path':'move');
     if(allowMountains)toast('本次路线允许穿越山地/森林');else if(append)toast('已追加移动路径点');
@@ -49,6 +51,12 @@ export function bindInput(ctx){
     }
     const world=renderer.world(p.x,p.y),now=performance.now();
     const inMap=world.x>=0&&world.x<ctx.state.map.width&&world.y>=0&&world.y<ctx.state.map.height;
+    if(interaction.selectedBuilding){
+      const target=inMap?enemyAt(world):null,error=target?game.commandBuildingAttack(interaction.selectedBuilding,target.id):'建筑不能移动，请右键可见敌人指定目标';
+      toast(error||`已指定攻击${STATS[target.type].name}`);
+      if(!error){const markerStartedAt=performance.now(),markerDuration=760;ctx.marker={...world,attack:true,startedAt:markerStartedAt,duration:markerDuration,until:markerStartedAt+markerDuration};signal('attackTarget');sendSnapshot();}
+      updateHud();return;
+    }
     const doubleClick=!e.shiftKey&&ctx.selected.size>0&&ctx.lastRightClick&&now-ctx.lastRightClick.time<350&&Math.hypot(p.x-ctx.lastRightClick.x,p.y-ctx.lastRightClick.y)<6;
     const flyingBefore=game.units.filter(u=>ctx.selected.has(u.id)&&game.isFlying(u)).map(u=>u.id);
     if(doubleClick&&inMap){
@@ -103,9 +111,14 @@ export function bindInput(ctx){
       }
     }else{
       ctx.lastUnitClick=null;
-      const before=ctx.selected.size;
-      for(const u of choices){const p=renderer.screen(u.x,u.y);if(p.x>=Math.min(ctx.drag.sx,ctx.drag.x)&&p.x<=Math.max(ctx.drag.sx,ctx.drag.x)&&p.y>=Math.min(ctx.drag.sy,ctx.drag.y)&&p.y<=Math.max(ctx.drag.sy,ctx.drag.y))ctx.selected.add(u.id);}
-      if(ctx.selected.size>before)signal('box');
+      const x0=Math.min(ctx.drag.sx,ctx.drag.x),x1=Math.max(ctx.drag.sx,ctx.drag.x),y0=Math.min(ctx.drag.sy,ctx.drag.y),y1=Math.max(ctx.drag.sy,ctx.drag.y),boxed=[];
+      for(const u of choices){const p=renderer.screen(u.x,u.y);if(p.x>=x0&&p.x<=x1&&p.y>=y0&&p.y<=y1){ctx.selected.add(u.id);boxed.push(u);}}
+      if(boxed.length)signal('box');
+      else if(!ctx.sandboxEditing&&!ctx.selected.size){
+        const cx=(x0+x1)/2,cy=(y0+y1)/2;
+        const building=ctx.state.buildings.filter(b=>b.team===0&&b.hp>0&&visibleToView(b)).map(b=>({b,p:renderer.screen(b.x,b.y)})).filter(({p})=>p.x>=x0&&p.x<=x1&&p.y>=y0&&p.y<=y1).sort((a,b)=>(a.p.x-cx)**2+(a.p.y-cy)**2-(b.p.x-cx)**2-(b.p.y-cy)**2)[0]?.b;
+        if(building){interaction.enter('select',{buildingId:building.id});renderMode();signal('buildingPick');}
+      }
     }
     updateHud();
   }else if(ctx.drag.kind==='pan'&&Math.hypot(ctx.drag.x-ctx.drag.sx,ctx.drag.y-ctx.drag.sy)>=5)signal('pan');ctx.drag=null;if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);});
@@ -135,6 +148,7 @@ export function bindInput(ctx){
       return;
     }
     if(key===' '){e.preventDefault();if(!e.repeat)togglePause();return;}
+    if(key==='h'){e.preventDefault();ctx.showRanges=true;return;}
     if(key==='f2'){
       e.preventDefault();
       if(observer||e.repeat)return;
@@ -152,7 +166,7 @@ export function bindInput(ctx){
       if(game.food<STATS[type].food||game.ore<STATS[type].ore){toast('资源不足');return;}
       $('build-'+type).click();return;
     }
-    if(key==='b'){e.preventDefault();closeBuild();if([...ctx.selected].some(id=>game.units.some(u=>u.id===id&&u.team===0&&u.hp>0))){signal('buildMenu');interaction.enter('build');renderMode();updateHud();}else toast('请先选择部队');}
+    if(key==='b'){e.preventDefault();closeBuild();if([...ctx.selected].some(id=>game.units.some(u=>u.id===id&&u.team===0&&u.hp>0&&canConstruct(u)))){signal('buildMenu');interaction.enter('build');renderMode();updateHud();}else toast('请先选择可施工单位');}
     if(key==='r'){
       const base=game.buildings.find(b=>b.id===interaction.selectedBuilding&&b.team===0&&b.type==='base'&&b.hp>0);
       if(!ctx.selected.size&&(!interaction.selectedBuilding||base)){
@@ -161,10 +175,10 @@ export function bindInput(ctx){
     }
     if(key==='e'&&interaction.selectedBuilding&&!e.ctrlKey&&!e.altKey&&!e.metaKey){e.preventDefault();const error=game.exitTower(interaction.selectedBuilding);if(!error)signal('exitTower');toast(error||'哨塔驻兵已退出');sendSnapshot();updateHud();return;}
     if(key==='y'){e.preventDefault();enterRallyMode();}
-    if(key==='a'){e.preventDefault();if(ctx.selected.size)setAttack(true);else toast('请先选择部队');}
+    if(key==='a'){e.preventDefault();if(ctx.selected.size)setAttack(true);else toast(interaction.selectedBuilding?'建筑请右键可见敌人指定目标':'请先选择部队');}
     if(key==='s'){e.preventDefault();stop();}
   });
-  window.addEventListener('keyup',e=>{if(e.key==='Shift'&&ctx.sandboxEditing)ctx.sandboxMove({x:0,y:0},false);});
+  window.addEventListener('keyup',e=>{if(e.key.toLowerCase()==='h')ctx.showRanges=false;if(e.key==='Shift'&&ctx.sandboxEditing)ctx.sandboxMove({x:0,y:0},false);});
   canvas.addEventListener('pointerleave',()=>{if(ctx.sandboxEditing)ctx.sandboxMove({x:0,y:0},false);});
-  window.addEventListener('blur',()=>{ctx.drag=null;ctx.lastUnitClick=null;ctx.lastRightClick=null;});
+  window.addEventListener('blur',()=>{ctx.drag=null;ctx.lastUnitClick=null;ctx.lastRightClick=null;ctx.showRanges=false;});
 }

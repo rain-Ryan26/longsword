@@ -6,6 +6,7 @@ export const TRAINABLE_TYPES=['shield','archer','wilddog','pigeon','armoredCar',
 export const BUILDING_TYPES=['base','mine','tower','factory','machineFactory'];
 const AI_TRAINABLE_TYPES=[...TRAINABLE_TYPES,'ironShield','crossbow'];
 const REQUIRED_TECH={pigeon:['birdTraining'],armoredCar:['castIron'],steamWalker:['castIron','artillery','steamCore']};
+export const canConstruct=unit=>!!unit&&unit.type!=='wilddog'&&!STATS[unit.type]?.air;
 
 export function productionType(type,technologies,team=0){
   if(team!==0)return type;

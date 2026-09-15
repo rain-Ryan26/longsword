@@ -26,7 +26,7 @@ let aiControl=false;
 let lastUnitClick=null,lastRightClick=null;
 const interaction=new InteractionState();
 const tutorial=new Tutorial();
-let state=game?.snapshot(),selected=new Set(),view=observer?1:0,drag=null,marker=null,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer,missionIntroTimer,headerTimer;
+let state=game?.snapshot(),selected=new Set(),view=observer?1:0,drag=null,marker=null,showRanges=false,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer,missionIntroTimer,headerTimer;
 const renderer=new Renderer($('game'),$('minimap'));renderer.resize();if(observer)renderer.camera={x:W/2,y:H/2,zoom:Math.max(5,Math.min(renderer.width/W,renderer.height/H)*.88)};$('perspective').value=view;
 const audio=new AudioManager(),settingsPanel=$('settings-panel');
 function syncAudioSettings(){const {master,effects,muted}=audio.settings;$('master-volume').value=master;$('effects-volume').value=effects;$('sound-muted').checked=muted;$('master-volume-value').textContent=`${master}%`;$('effects-volume-value').textContent=`${effects}%`;}
@@ -171,6 +171,7 @@ bindInput({
   get selected(){return selected;},set selected(value){selected=value;},
   get drag(){return drag;},set drag(value){drag=value;},
   get marker(){return marker;},set marker(value){marker=value;},
+  get showRanges(){return showRanges;},set showRanges(value){showRanges=value;},
   get lastUnitClick(){return lastUnitClick;},set lastUnitClick(value){lastUnitClick=value;},
   get lastRightClick(){return lastRightClick;},set lastRightClick(value){lastRightClick=value;},
 });
@@ -204,7 +205,7 @@ let lastFrame=null;
 function frame(now){
   const elapsed=lastFrame===null?frameInterval:now-lastFrame;
   if(elapsed>=frameInterval-.001){
-    if(state)renderer.draw(state,view,selected,drag,marker,interaction.selectedBuilding,interaction.buildPreview);
+    if(state)renderer.draw(state,view,selected,drag,marker,interaction.selectedBuilding,interaction.buildPreview,showRanges);
     // Preserve the remainder without replaying frames after a slow or hidden tab.
     lastFrame=now-Math.max(0,elapsed-Math.floor((elapsed+.001)/frameInterval)*frameInterval);
   }

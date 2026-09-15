@@ -2,6 +2,29 @@ import {STATS} from './data.js';
 import {towerGarrisonType} from './rules.js';
 import {buildingCells,coversCell} from './pathfinding.js';
 const TEAM=['#85d7e3','#e59678'];
+export function rangePreviews(state,selected,selectedBuilding=null){
+  const sources=state.units.filter(u=>selected.has(u.id)&&u.team===0&&u.hp>0&&!u.garrisonId);
+  const building=state.buildings.find(b=>b.id===selectedBuilding&&b.team===0&&b.hp>0&&!b.constructionPending);
+  if(building)sources.push(building);
+  const ground=[],air=[];
+  for(const source of sources){
+    const stats=STATS[source.type];
+    if(!stats)continue;
+    if(!source.building&&!stats.ranged)continue;
+    if(!stats.airOnly&&Number.isFinite(stats.range)&&stats.range>0)ground.push({x:source.x,y:source.y,radius:stats.range,id:source.id});
+    const airRange=stats.airOnly?(source.flying===false?null:stats.range):stats.antiAir?(stats.antiAirRange??2):null;
+    if(Number.isFinite(airRange)&&airRange>0)air.push({x:source.x,y:source.y,radius:airRange,id:source.id});
+  }
+  return {ground,air};
+}
+export function paintRangeLayer(c,ranges){
+  const circles=items=>{c.beginPath();for(const item of items){c.moveTo(item.x+item.radius,item.y);c.arc(item.x,item.y,item.radius,0,Math.PI*2);}};
+  c.globalCompositeOperation='source-over';
+  circles(ranges.ground);c.fillStyle='#378fdb38';c.fill();
+  // 先完整挖掉防空联合区域，避免蓝黄相叠或多个单位的同色区域重复加深。
+  c.globalCompositeOperation='destination-out';circles(ranges.air);c.fillStyle='#000';c.fill();
+  c.globalCompositeOperation='source-over';circles(ranges.air);c.fillStyle='#f2ce4566';c.fill();
+}
 export function commandMarkerFrame(marker,now){
   const duration=Math.max(1,marker.duration||1000),startedAt=Number.isFinite(marker.startedAt)?marker.startedAt:marker.until-duration;
   const progress=Math.max(0,Math.min(1,(now-startedAt)/duration));
@@ -17,6 +40,15 @@ export class Renderer{
   screen(x,y){return {x:(x-this.camera.x)*this.camera.zoom+this.width/2,y:(y-this.camera.y)*this.camera.zoom+this.height/2};}
   clamp(){const W=this.lastMap?.width??96,H=this.lastMap?.height??64;this.camera.x=Math.max(0,Math.min(W,this.camera.x));this.camera.y=Math.max(0,Math.min(H,this.camera.y));}
   zoomAt(x,y,factor){const before=this.world(x,y);this.camera.zoom=Math.max(5,Math.min(36,this.camera.zoom*factor));const after=this.world(x,y);this.camera.x+=before.x-after.x;this.camera.y+=before.y-after.y;this.clamp();}
+  drawRanges(state,selected,selectedBuilding){
+    if(!this.rangeCanvas){this.rangeCanvas=document.createElement('canvas');this.rangeContext=this.rangeCanvas.getContext('2d');}
+    if(this.rangeCanvas.width!==this.canvas.width||this.rangeCanvas.height!==this.canvas.height){this.rangeCanvas.width=this.canvas.width;this.rangeCanvas.height=this.canvas.height;}
+    const r=this.rangeContext,z=this.camera.zoom,dpr=this.dpr;r.setTransform(1,0,0,1,0,0);r.clearRect(0,0,this.rangeCanvas.width,this.rangeCanvas.height);
+    r.setTransform(dpr*z,0,0,dpr*z,dpr*(this.width/2-this.camera.x*z),dpr*(this.height/2-this.camera.y*z));
+    paintRangeLayer(r,rangePreviews(state,selected,selectedBuilding));
+    const x=this.camera.x-this.width/(2*z),y=this.camera.y-this.height/(2*z);
+    this.ctx.drawImage(this.rangeCanvas,x,y,this.width/z,this.height/z);
+  }
   bake(map){
     const {width:W,height:H}=map;
     this.terrainCanvas=document.createElement('canvas');const c=this.terrainCanvas;c.width=W*16;c.height=H*16;const ctx=c.getContext('2d');
@@ -29,12 +61,12 @@ export class Renderer{
     ctx.strokeStyle='#b5c18c35';ctx.lineWidth=1.5;ctx.beginPath();for(let x=0;x<=W;x+=8){ctx.moveTo(x*16,0);ctx.lineTo(x*16,H*16);}for(let y=0;y<=H;y+=8){ctx.moveTo(0,y*16);ctx.lineTo(W*16,y*16);}ctx.stroke();
     this.lastMap=map;this.fogCanvas=null;this.fogKey=null;this.miniBackgroundKey=null;this.miniUnitsKey=null;
   }
-  draw(state,view,selected,drag,marker,selectedBuilding=null,buildPreview=null){
+  draw(state,view,selected,drag,marker,selectedBuilding=null,buildPreview=null,showRanges=false){
     const {width:W,height:H}=state.map;
     if(this.sizeDirty||this.dpr!==(window.devicePixelRatio||1))this.resize();
     const mapChanged=this.lastMap!==state.map;
     const now=performance.now(),animated=!!marker&&marker.until>now;
-    const key=JSON.stringify([state.revision,state.time,state.visionVersion,view,this.camera,this.width,this.height,this.dpr,this.minimap.width,this.minimap.height,[...selected],drag,animated?marker:null,selectedBuilding,buildPreview]);
+    const key=JSON.stringify([state.revision,state.time,state.visionVersion,view,this.camera,this.width,this.height,this.dpr,this.minimap.width,this.minimap.height,[...selected],drag,animated?marker:null,selectedBuilding,buildPreview,showRanges]);
     if(!mapChanged&&key===this.frameKey&&!animated)return false;
     this.frameKey=key;
     if(mapChanged)this.bake(state.map);
@@ -76,8 +108,9 @@ export class Renderer{
         c.save();c.translate(b.x,b.y);c.fillStyle='#0c171880';c.fillRect(-1.2,-1.05,2.7,2.7);c.fillStyle='#35515a';c.strokeStyle=TEAM[b.team];c.lineWidth=.12;c.fillRect(-1.35,-1.35,2.7,2.7);c.strokeRect(-1.35,-1.35,2.7,2.7);c.fillStyle='#f2ce45';c.beginPath();c.arc(0,0,.75,0,Math.PI*2);c.fill();
         if(b.id===selectedBuilding){c.strokeStyle='#e0ebac';c.lineWidth=.15;c.strokeRect(-2,-2,4,4);}
         this.bar(c,0,-1.8,2.7,b.hp/b.maxHp,b.team);
-        c.fillStyle='#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;
-        c.fillText(b.awaitingEviction?'食物厂 · 等待部队离开':b.constructionPending?(b.activeBuilders?`食物厂 · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:'食物厂 · 等待施工'):(state.map.foodPoints||[]).some(n=>coversCell(b,n))?'食物厂 资源充足':'食物厂',0,b.constructionPending?1.8:2.8);
+        const enough=!b.awaitingEviction&&!b.constructionPending&&(state.map.foodPoints||[]).some(n=>coversCell(b,n));
+        c.fillStyle=enough?'#a6dc74':'#e0dfb7';c.textAlign='center';c.font=`${Math.max(.65,10/z)}px "Microsoft YaHei"`;
+        c.fillText(b.awaitingEviction?'食物厂 · 等待部队离开':b.constructionPending?(b.activeBuilders?`食物厂 · ${b.activeBuilders} 人 · ${Math.ceil(b.constructionRemaining/b.activeBuilders)} 秒`:'食物厂 · 等待施工'):'食物厂',0,b.constructionPending?1.8:2.8);
         c.restore();continue;
       }
       if(b.type==='tower'){
@@ -146,6 +179,7 @@ export class Renderer{
     if(!all){
       c.imageSmoothingEnabled=false;c.drawImage(this.fogCanvas,0,0,W,H);
     }
+    if(showRanges)this.drawRanges(state,selected,selectedBuilding);
     for(const plan of state.buildPlans||[]){
       if(!all&&plan.team!==team)continue;
       const r=STATS[plan.type].halfSize||2;

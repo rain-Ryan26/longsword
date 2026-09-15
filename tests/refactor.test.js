@@ -7,6 +7,7 @@ import {InteractionState} from '../src/interaction.js';
 import {STATS} from '../src/data.js';
 import {createWalkability,walkable,findPath} from '../src/pathfinding.js';
 import {trainingPlan,productionType} from '../src/rules.js';
+import {paintRangeLayer,rangePreviews} from '../src/renderer.js';
 
 test('训练预检与实际扣费共用规则，玩家科技不影响 AI',()=>{
   const game=productionGame(),base=game.buildings.find(b=>b.team===0);
@@ -100,6 +101,20 @@ test('索敌同分保留实体顺序，已有目标死亡后弹道及时失效',
   assert.equal(game.projectiles[0].life,0);
 });
 
+test('部队自动索敌严格优先敌军、其次防御建筑、最后无伤害建筑',()=>{
+  const game=productionGame();game.units=[];game.buildings=[];game.map.terrain.fill(0);
+  const attacker=game.addUnit('shield',0,20,20);
+  const economy=game.addBuilding('base',1,21,20);
+  const defense=game.addBuilding('tower',1,22,20);
+  const enemy=game.addUnit('shield',1,28,20);
+  game.updateVision();
+  assert.equal(game.acquireTarget(attacker,game.entities(),{preferUnits:true}).id,enemy.id);
+  enemy.hp=0;
+  assert.equal(game.acquireTarget(attacker,game.entities(),{preferUnits:true}).id,defense.id);
+  defense.hp=0;
+  assert.equal(game.acquireTarget(attacker,game.entities(),{preferUnits:true}).id,economy.id);
+});
+
 test('交互模式互斥，取消和重开清除预览，集结及科技保留建筑选择',()=>{
   const state=new InteractionState();
   state.enter('place',{type:'tower'});state.buildPreview={x:10,y:10};
@@ -114,6 +129,33 @@ test('交互模式互斥，取消和重开清除预览，集结及科技保留�
   state.enter('select');assert.equal(state.selectedBuilding,null);
   assert.equal(state.techMenu,false);
   assert.equal(state.presentation(true).cursor,'default');
+});
+
+test('射程预览区分普通攻击与防空，排除近战单位并包含己方攻击建筑',()=>{
+  const game=productionGame();game.units=[];game.buildings=[];
+  const archer=game.addUnit('archer',0,10,10),shield=game.addUnit('shield',0,12,10),enemy=game.addUnit('archer',1,14,10);
+  const pigeon=game.addUnit('pigeon',0,16,10),tower=game.addBuilding('tower',0,20,10),unfinished=game.addBuilding('tower',0,24,10);unfinished.constructionPending=true;
+  const ranges=rangePreviews(game.snapshot(),new Set([archer.id,shield.id,enemy.id,pigeon.id]),tower.id);
+  assert.deepEqual(ranges.ground.map(r=>[r.id,r.radius]),[[archer.id,STATS.archer.range],[tower.id,STATS.tower.range]]);
+  assert.deepEqual(ranges.air.map(r=>[r.id,r.radius]),[[archer.id,2],[tower.id,STATS.tower.antiAirRange]]);
+  assert.equal(rangePreviews(game.snapshot(),new Set(),unfinished.id).ground.length,0);
+  pigeon.flying=false;assert.equal(rangePreviews(game.snapshot(),new Set([pigeon.id])).air.length,0);
+});
+
+test('射程覆盖层只合成一层颜色，防空挖空蓝色且不绘制边界线',()=>{
+  const calls=[],values={};
+  const context=new Proxy({beginPath(){calls.push('begin')},moveTo(){},arc(){},fill(){calls.push(`fill:${values.globalCompositeOperation}`)},stroke(){calls.push(`stroke:${values.lineWidth}`)}},{set(_,key,value){values[key]=value;return true;},get(target,key){return key in target?target[key]:values[key];}});
+  paintRangeLayer(context,{ground:[{x:0,y:0,radius:6},{x:2,y:0,radius:6}],air:[{x:0,y:0,radius:2},{x:1,y:0,radius:2}]});
+  assert.deepEqual(calls.filter(call=>call.startsWith('fill:')),['fill:source-over','fill:destination-out','fill:source-over']);
+  assert.deepEqual(calls.filter(call=>call.startsWith('stroke:')),[]);
+});
+
+test('己方攻击建筑可指定可见目标并保持优先，非攻击建筑拒绝指令',()=>{
+  const game=productionGame();game.units=[];game.buildings=[];game.map.terrain.fill(0);
+  const tower=game.addBuilding('tower',0,20,20),near=game.addUnit('shield',1,22,20),chosen=game.addUnit('shield',1,27,20),base=game.addBuilding('base',0,10,10);
+  game.updateVision();assert.equal(game.commandBuildingAttack(tower.id,chosen.id),null);assert.equal(tower.targetId,chosen.id);
+  game.stepTowers(.05,game.entities());assert.equal(game.projectiles.at(-1).targetId,chosen.id);assert.notEqual(game.projectiles.at(-1).targetId,near.id);
+  assert.match(game.commandBuildingAttack(base.id,chosen.id),/不能攻击/);
 });
 
 // 小地图参考实现用线性选择最短距离，不依赖生产代码的堆、戳记或去重。
@@ -225,6 +267,13 @@ test('提取后的输入处理覆盖选择、编队、取消、暂停及观察�
     key('1',{ctrlKey:true});ctx.selected.clear();key('1');assert.ok(ctx.selected.has(unit.id));
     key('a');assert.equal(interaction.attackMode,true);
     key('Escape');assert.equal(interaction.mode,'select');assert.equal(ctx.drag,null);
+    key('h');assert.equal(ctx.showRanges,true);handlers.get('keyup')({key:'h'});assert.equal(ctx.showRanges,false);
+    const boxedTower=game.addBuilding('tower',0,80,50);ctx.selected.clear();ctx.state=game.snapshot();
+    handlers.get('game:pointerdown')({button:0,clientX:77,clientY:47,pointerId:1});
+    handlers.get('game:pointermove')({clientX:83,clientY:53,pointerId:1});
+    handlers.get('game:pointerup')({pointerId:1});
+    assert.equal(interaction.selectedBuilding,boxedTower.id);assert.ok(signals.includes('buildingPick'));
+    interaction.enter('select');
     key(' ');assert.equal(pauses,1);
     // 建造和补派只取消实际施工人员的选中；失败不改变选择。
     const troops=Array.from({length:5},(_,i)=>game.addUnit('shield',0,24+i,20));
@@ -271,6 +320,9 @@ test('提取后的输入处理覆盖选择、编队、取消、暂停及观察�
     handlers.get('game:pointerdown')({button:0,clientX:50,clientY:26,pointerId:1});
     handlers.get('game:pointerup')({pointerId:1});
     assert.equal(interaction.selectedBuilding,shelter.id);
+    const marked=game.addUnit('shield',1,55,26);marked.x=55;marked.y=26;game.updateVision();ctx.state=game.snapshot();
+    handlers.get('game:pointerdown')({button:2,clientX:55,clientY:26,pointerId:1,preventDefault:noop});
+    assert.equal(shelter.targetId,marked.id);
     key('e');assert.equal(resident.garrisonId,null);
     ctx.observer=true;bindInput(ctx);ctx.selected.clear();key('F2');assert.equal(ctx.selected.size,0);
     key(' ');assert.equal(pauses,1);

@@ -4,7 +4,7 @@ import {indexEntities,nearbyEntities,earlierEntity} from './queries.js';
 import {stepUnits,move,invalidateMovement} from './units.js';
 import {separateUnits} from './separation.js';
 import {createLevelMap,setupLevel} from './levels.js';
-import {productionType,populationCap,researchError,trainingPlan,foodRate,BUILDING_TYPES,towerGarrisonType} from './rules.js';
+import {productionType,populationCap,researchError,trainingPlan,foodRate,BUILDING_TYPES,towerGarrisonType,canConstruct} from './rules.js';
 export {TRAIN_QUEUE_LIMIT} from './rules.js';
 import {VisionSystem} from './vision.js';
 import {STATS,TECHNOLOGIES,MOVEMENT_MULTIPLIERS} from './data.js';
@@ -51,8 +51,12 @@ export class Game{
   canSee(team,e){if(e.garrisonId)return false;return e.team===team||!!this.visible[team][this.cellIndex(e.x,e.y)];}
   detectionRange(e){return this.isFlying(e)||!('visionGround' in STATS[e.type])?STATS[e.type].vision:STATS[e.type].visionGround;}
   movementSpeed(u){if(STATS[u.type].air)return this.isFlying(u)?STATS[u.type].speed:0;return STATS[u.type].speed*(MOVEMENT_MULTIPLIERS[this.map.terrain[this.cellIndex(u.x,u.y)]]??1);}
-  // 分别返回是否避让山地、森林；BOT 默认可穿森林，单位在慢速地形中时先允许走出。
-  terrainAvoidance(u){return this.isFlying(u)||this.map.terrain[this.cellIndex(u.x,u.y)]!==0?[false,false]:[!!STATS[u.type].noMountains||!u.allowMountains,!(u.allowForests||u.team===1)];}
+  // 分别返回是否避让山地、森林；BOT 的非施工单位默认可穿森林，单位在慢速地形中时先允许走出。
+  terrainAvoidance(u){
+    if(this.isFlying(u)||this.map.terrain[this.cellIndex(u.x,u.y)]!==0)return [false,false];
+    const building=u.order==='build'||u.buildPlanId!=null;
+    return [!!STATS[u.type].noMountains||!u.allowMountains,!(u.allowForests||(u.team===1&&!building))];
+  }
   isFlying(u){return !!STATS[u.type].air&&u.flying!==false;}
   canEngage(u,e){if(u.garrisonId||e.garrisonId)return false;if(STATS[u.type].airOnly)return this.isFlying(u)&&this.isFlying(e);return !this.isFlying(e)||this.isFlying(u)||!!STATS[u.type].antiAir;}
   toggleFlight(ids,point){
@@ -126,6 +130,17 @@ export class Game{
       if(p){u.goal=p;u.path=this.pathFor(u,p);}
     });
   }
+  commandBuildingAttack(buildingId,targetId,team=0){
+    if(this.result)return '战局已结束';
+    const building=this.buildings.find(b=>b.id===buildingId&&b.team===team&&b.hp>0);
+    if(!building)return '请先选择己方建筑';
+    const stats=STATS[building.type];
+    if(building.constructionPending||!Number.isFinite(stats.damage)||!Number.isFinite(stats.range))return '该建筑不能攻击';
+    const target=this.entities().find(e=>e.id===targetId&&e.team!==team&&this.canSee(team,e));
+    if(!target)return '请选择可见敌人';
+    if(!this.canEngage(building,target))return '该建筑不能攻击此目标';
+    building.targetId=target.id;this.revision++;return null;
+  }
   placement(type,point,team=0,actual=false){
     if(!BUILDING_TYPES.includes(type))return {error:'未知建筑'};
     const r=STATS[type].halfSize||2,odd=(r*2)%2===1;
@@ -155,7 +170,7 @@ export class Game{
   consumeNotifications(){return this.notifications.splice(0);}
   stepBuildPlans(){
     for(const plan of [...this.buildPlans]){
-      const workers=this.units.filter(u=>plan.ids.includes(u.id)&&u.hp>0&&u.team===plan.team&&!u.garrisonId);
+      const workers=this.units.filter(u=>plan.ids.includes(u.id)&&u.hp>0&&u.team===plan.team&&!u.garrisonId&&canConstruct(u));
       if(!workers.some(u=>u.buildPlanId===plan.id&&distance(u,plan)<(STATS[plan.type].halfSize||2)+1))continue;
       this.updateVision();
       this.buildPlans.splice(this.buildPlans.indexOf(plan),1);
@@ -167,15 +182,16 @@ export class Game{
   }
   build(ids,type,point,team=0,actual=false){
     if(this.result)return '战局已结束';
-    if(!this.units.some(u=>ids.includes(u.id)&&u.team===team&&u.hp>0&&!u.garrisonId))return '请先选择部队';
+    if(!this.units.some(u=>ids.includes(u.id)&&u.team===team&&u.hp>0&&!u.garrisonId&&canConstruct(u)))return '请先选择可施工单位';
     const p=this.placement(type,point,team,actual);if(p.error)return p.error;
     const s=STATS[type];if(this[team===0?'food':'aiFood']<s.food||this[team===0?'ore':'aiOre']<s.ore)return '资源不足';
     if(p.reserved){
-      const workers=this.units.filter(u=>ids.includes(u.id)&&u.team===team&&u.hp>0&&!u.garrisonId&&!STATS[u.type].air);
+      const workers=this.units.filter(u=>ids.includes(u.id)&&u.team===team&&u.hp>0&&!u.garrisonId&&canConstruct(u));
       if(!workers.length)return '选中部队无法到达建筑周边';
       const plan={id:this.nextId++,type,team,x:p.x,y:p.y,ids:workers.map(u=>u.id)};
       this[team===0?'food':'aiFood']-=s.food;this[team===0?'ore':'aiOre']-=s.ore;this.buildPlans.push(plan);
-      this.command(plan.ids,'move',p,null,false,false,team);for(const u of workers)u.buildPlanId=plan.id;
+      this.command(plan.ids,'move',p,null,false,false,team);
+      for(const u of workers){u.buildPlanId=plan.id;if(u.goal)u.path=this.pathFor(u,u.goal);}
       this.onBuildersDispatched?.(plan.ids);
       this.revision++;return null;
     }
@@ -209,7 +225,7 @@ export class Game{
     return Math.floor(u.x)>=c.x0&&Math.floor(u.x)<=c.x1&&Math.floor(u.y)>=c.y0&&Math.floor(u.y)<=c.y1;
   }
   builderAssignments(ids,b){
-    const assigned=this.units.filter(u=>u.hp>0&&!STATS[u.type].air&&u.buildingId===b.id&&u.order==='build');
+    const assigned=this.units.filter(u=>u.hp>0&&canConstruct(u)&&u.buildingId===b.id&&u.order==='build');
     const buildings=this.buildings.includes(b)?this.buildings:[...this.buildings,b],spots=[];
     const r=STATS[b.type].halfSize||2,c=buildingCells(b);
     for(let i=c.x0;i<=c.x1;i++)for(const p of [{x:i+.5,y:b.y-r-.5},{x:i+.5,y:b.y+r+.5}]){
@@ -219,11 +235,12 @@ export class Game{
       if(!spots.some(q=>distance(p,q)<.1)&&!assigned.some(u=>u.goal&&distance(u.goal,p)<.8))spots.push(p);
     }
     const result=[];
-    for(const u of this.units.filter(u=>ids.includes(u.id)&&u.team===b.team&&u.hp>0&&!u.garrisonId&&!STATS[u.type].air&&!assigned.includes(u)).sort((a,c)=>distance(a,b)-distance(c,b))){
+    for(const u of this.units.filter(u=>ids.includes(u.id)&&u.team===b.team&&u.hp>0&&!u.garrisonId&&canConstruct(u)&&!assigned.includes(u)).sort((a,c)=>distance(a,b)-distance(c,b))){
       if(result.length+assigned.length>=(STATS[b.type].maxBuilders||4))break;
       for(const p of [...spots].sort((a,c)=>distance(a,u)-distance(c,u))){
-        if(!walkable(this.map,buildings,Math.floor(p.x),Math.floor(p.y)))continue;
-        const path=findPath(this.map,buildings,u,p,false);
+        const avoidance=this.map.terrain[this.cellIndex(u.x,u.y)]===0?[true,true]:[false,false];
+        if(!walkable(this.map,buildings,Math.floor(p.x),Math.floor(p.y),...avoidance))continue;
+        const path=findPath(this.map,buildings,u,p,...avoidance);
         if(!path.length&&distance(u,p)>.65)continue;
         result.push({u,p,path});spots.splice(spots.indexOf(p),1);break;
       }
@@ -231,7 +248,7 @@ export class Game{
     return result;
   }
   dispatchBuilders(b,assignments){
-    for(const {u,p,path} of assignments){u.garrisonTarget=null;u.buildingId=b.id;u.order='build';u.goal=p;u.path=path;u.waypoints=[];u.targetId=null;u.holdFire=false;u.allowMountains=true;u.allowForests=true;u.repath=1;}
+    for(const {u,p,path} of assignments){u.garrisonTarget=null;u.buildingId=b.id;u.order='build';u.goal=p;u.path=path;u.waypoints=[];u.targetId=null;u.holdFire=false;u.allowMountains=false;u.allowForests=false;u.repath=1;}
     this.onBuildersDispatched?.(assignments.map(({u})=>u.id));
   }
   assistBuild(ids,id){
@@ -365,7 +382,7 @@ export class Game{
         continue;
       }
       if(b.constructionPending){
-        const workers=this.units.filter(u=>u.hp>0&&u.team===b.team&&u.order==='build'&&u.buildingId===b.id&&u.goal&&distance(u,u.goal)<=.65).slice(0,STATS[b.type].maxBuilders||4);
+        const workers=this.units.filter(u=>u.hp>0&&u.team===b.team&&canConstruct(u)&&u.order==='build'&&u.buildingId===b.id&&u.goal&&distance(u,u.goal)<=.65).slice(0,STATS[b.type].maxBuilders||4);
         b.activeBuilders=workers.length;productionTime=0;
         if(workers.length){
           const total=STATS[b.type].buildTime||1;
@@ -392,8 +409,10 @@ export class Game{
   stepTowers(dt,entities){
     for(const tower of this.buildings.filter(b=>b.type==='tower'&&b.hp>0&&!b.constructionPending)){
       const s=STATS.tower;tower.cooldown=Math.max(0,tower.cooldown-dt);
-      const target=this.acquireTarget(tower,entities,{tower:true});
-      if(target&&tower.cooldown<=0){tower.cooldown=s.cooldown;tower.revealUntil=this.time+2;
+      let target=tower.targetId==null?null:entities.find(e=>e.id===tower.targetId);
+      if(target&&(!this.canSee(tower.team,target)||!this.canEngage(tower,target)||target.hp<=0)){tower.targetId=null;target=null;}
+      if(!target)target=this.acquireTarget(tower,entities,{tower:true});
+      if(target&&distance(tower,target)<=this.attackRange(tower,target)&&tower.cooldown<=0){tower.cooldown=s.cooldown;tower.revealUntil=this.time+2;
         this.projectiles.push({x:tower.x,y:tower.y,fromX:tower.x,fromY:tower.y,targetId:target.id,team:tower.team,damage:this.attackDamage(tower,target),life:2});
       }
     }
@@ -459,7 +478,9 @@ export class Game{
       const d=distance(source,entity);
       if(d>range||(tower&&d>this.attackRange(source,entity)))continue;
       if(guard&&source.role==='guard'&&distance(entity,source.home)>=13)continue;
-      const score=d+(preferUnits&&entity.building?3:0);
+      // 部队自动索敌：敌方单位 > 有伤害的防御建筑 > 无伤害建筑；同类再比较距离。
+      const priority=preferUnits?(entity.building?(STATS[entity.type].damage>0?1:2):0):0;
+      const score=priority*(range+1)+d;
       // 相等分数保留数组中较早的实体，维持原稳定排序的选择顺序。
       if(score<bestScore||(score===bestScore&&earlierEntity(entities,entity,best))){best=entity;bestScore=score;}
     }
