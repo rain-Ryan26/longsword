@@ -17,7 +17,7 @@ export function productionGame(){
   return game;
 }
 
-// 所有关卡开局科技均未研发；需要高级兵或机械的测试自行补上已完成状态。
+// 教程关与均衡对抗关开局科技未研发；进攻、随机进攻、防守关开局已全解锁。需要高级兵或机械的测试自行补上已完成状态。
 export function completeTechnologies(game){
   for(const tech of Object.values(game.technologies)){tech.status='complete';tech.remaining=0;}
   return game;

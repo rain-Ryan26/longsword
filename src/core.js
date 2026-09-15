@@ -20,6 +20,8 @@ export class Game{
     const playerStart=['attack','randomAttack','defend','tutorial'].includes(level)?5000:1000,aiStart=['attack','randomAttack','defend'].includes(level)?2000:1000;
     this.food=playerStart;this.ore=playerStart;this.queue=[];this.aiFood=aiStart;this.aiOre=aiStart;this.aiQueue=[];
     this.technologies=Object.fromEntries(Object.keys(TECHNOLOGIES).map(id=>[id,{status:'locked',remaining:0}]));
+    // 进攻、随机进攻与防守关卡默认全部科技已解锁。
+    if(['attack','randomAttack','defend'].includes(level))for(const tech of Object.values(this.technologies))tech.status='complete';
     this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
     this.visible=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];this.explored=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];
     this.ghosts=[{buildings:new Map(),units:new Map()},{buildings:new Map(),units:new Map()}];

@@ -5,7 +5,7 @@ export const TRAIN_QUEUE_LIMIT=50;
 export const TRAINABLE_TYPES=['shield','archer','wilddog','pigeon','armoredCar','steamWalker'];
 export const BUILDING_TYPES=['base','mine','tower','factory','machineFactory'];
 const AI_TRAINABLE_TYPES=[...TRAINABLE_TYPES,'ironShield','crossbow'];
-const REQUIRED_TECH={armoredCar:['castIron'],steamWalker:['castIron','artillery','steamCore']};
+const REQUIRED_TECH={pigeon:['birdTraining'],armoredCar:['castIron'],steamWalker:['castIron','artillery','steamCore']};
 
 export function productionType(type,technologies,team=0){
   if(team!==0)return type;
@@ -36,8 +36,9 @@ export function trainingPlan(state,type,producerId=null,team=0){
   const allowed=team===0?TRAINABLE_TYPES:AI_TRAINABLE_TYPES;
   if(!allowed.includes(type)||state.result)return {error:'当前不能训练'};
   // AI 保留既有规则：不受玩家科技限制，自动选择最短队列的生产建筑。
-  if(team===0&&(REQUIRED_TECH[type]||[]).some(id=>state.technologies[id].status!=='complete')){
-    return {error:type==='armoredCar'?'需要先完成铸铁装甲':'需要先完成铸铁装甲、火炮和蒸汽核心'};
+  const required=team===0?REQUIRED_TECH[type]:null;
+  if(required?.some(id=>state.technologies[id].status!=='complete')){
+    return {error:`需要先完成${required.map(id=>TECHNOLOGIES[id].name).join('、')}`};
   }
   const machine=!!STATS[type].machine,producerType=machine?'machineFactory':'base';
   const queue=team===0?state.queue:state.aiQueue;
