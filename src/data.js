@@ -16,14 +16,14 @@ export const STATS = {
   ironShield:{name:'铁甲兵',hp:75,armor:8,damage:16,cooldown:.85,range:1.5,speed:1.75,vision:9,food:50,ore:20,trainTime:5,movable:true,air:false},
   archer:{name:'弓箭兵',hp:50,armor:1,damage:15,cooldown:1.2,range:7,speed:1.6,vision:9,food:60,ore:10,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
   crossbow:{name:'强弩兵',hp:50,armor:1,damage:22,cooldown:1.2,range:7,speed:1.6,vision:9,food:60,ore:20,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
-  armoredCar:{name:'装甲车',hp:200,armor:12,damage:22,cooldown:.6,range:8,speed:2.45,vision:10,food:150,ore:150,trainTime:10,pop:3,movable:true,air:false,ranged:true,machine:true,visualSize:1.2,collisionRadius:.55},
-  steamWalker:{name:'蒸汽步行机',hp:300,armor:20,damage:70,cooldown:1,range:10,speed:1.4,vision:13,food:300,ore:500,trainTime:30,pop:5,movable:true,air:false,ranged:true,machine:true,noMountains:true,visualSize:1.35,collisionRadius:.65,projectileKind:'cannonball',splashDamage:20,splashRadius:2,audioEvent:'cannonFire'},
+  armoredCar:{name:'装甲车',hp:200,armor:10,damage:22,cooldown:.4,range:8,speed:2.45,vision:10,food:200,ore:200,trainTime:10,pop:4,movable:true,air:false,ranged:true,machine:true,visualSize:1.2,collisionRadius:.55},
+  steamWalker:{name:'蒸汽步行机',hp:300,armor:20,damage:70,cooldown:1,range:10,speed:1.4,vision:13,food:300,ore:500,trainTime:30,pop:7,movable:true,air:false,ranged:true,machine:true,noMountains:true,visualSize:1.35,collisionRadius:.65,projectileKind:'cannonball',splashDamage:20,splashRadius:2,audioEvent:'cannonFire'},
   wilddog:{name:'野狗',hp:55,armor:0,damage:9,cooldown:.5,range:1.5,speed:2.75,vision:10,food:30,ore:0,trainTime:2,movable:true,air:false},
   pigeon:{name:'信鸽',hp:40,armor:0,damage:4,cooldown:.8,range:1.5,speed:5,vision:15,visionGround:5,food:60,ore:0,trainTime:2,movable:true,air:true,airOnly:true,minTurnRadius:2,orbitRadius:4},
   base:{name:'前线基地',hp:2000,armor:5,vision:10,food:300,ore:400,buildTime:240,maxBuilders:6,healRange:6,healRate:2,healTargets:5,pop:40},
-  mine:{name:'采矿场',hp:1000,armor:5,vision:10,food:200,ore:200,buildTime:180,halfSize:1.5},
+  mine:{name:'采矿场',hp:1000,armor:5,vision:10,food:200,ore:200,buildTime:180,halfSize:1.5,oreRate:5},
   tower:{name:'哨塔',hp:600,armor:5,vision:10*1.3,range:7+1,damage:15,cooldown:1.2,food:150,ore:150,buildTime:45,maxBuilders:2,halfSize:1,antiAir:true,antiAirRange:2+4},
-  factory:{name:'食物厂',hp:1000,armor:5,vision:10,food:200,ore:200,buildTime:180,halfSize:1.5},
+  factory:{name:'食物厂',hp:1000,armor:5,vision:10,food:200,ore:200,buildTime:180,halfSize:1.5,foodRate:5,foodRateOff:2},
   machineFactory:{name:'机械工厂',hp:1200,armor:5,vision:10,food:300,ore:400,buildTime:480,maxBuilders:8},
 };
 export const popOf=t=>STATS[t].pop||1;

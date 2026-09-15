@@ -375,7 +375,7 @@ export class Game{
           if(b.constructionRemaining<=1e-8){b.constructionRemaining=0;b.constructionPending=false;b.activeBuilders=0;productionTime=Math.max(0,dt-finishTime);this.releaseBuilders(b);}
         }
       }
-      if(b.type==='mine'){if(b.team===0)this.ore+=5*productionTime;else this.aiOre+=5*productionTime;}
+      if(b.type==='mine'){const rate=STATS.mine.oreRate;if(b.team===0)this.ore+=rate*productionTime;else this.aiOre+=rate*productionTime;}
       if(b.type==='factory'){const amount=this.foodRate(b)*productionTime;if(b.team===0)this.food+=amount;else this.aiFood+=amount;}
       // 基地本身不生产任何资源，食物与矿产均需依赖采矿场 / 食物厂。
       if(b.type==='base'&&productionTime>0){

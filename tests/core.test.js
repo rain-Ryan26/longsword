@@ -31,9 +31,9 @@ test('科技完成后基础训练项产出铁盾兵和强弩兵，并仍按基�
   assert.ok(attacker.revealUntil>g.time-.5);
 });
 test('机械数值、训练费用与蒸汽步行机炮击符合设计',()=>{
-  assert.equal(STATS.armoredCar.speed,STATS.wilddog.speed-.3);assert.equal(STATS.armoredCar.cooldown,STATS.crossbow.cooldown/2);
+  assert.equal(STATS.armoredCar.speed,STATS.wilddog.speed-.3);assert.equal(STATS.armoredCar.cooldown,.4);
   assert.equal(STATS.armoredCar.damage,STATS.crossbow.damage);assert.equal(STATS.armoredCar.range,8);
-  assert.deepEqual([STATS.armoredCar.food,STATS.armoredCar.ore,STATS.armoredCar.armor,STATS.armoredCar.hp],[150,150,12,200]);
+  assert.deepEqual([STATS.armoredCar.food,STATS.armoredCar.ore,STATS.armoredCar.armor,STATS.armoredCar.hp],[200,200,10,200]);
   assert.deepEqual([STATS.steamWalker.food,STATS.steamWalker.ore,STATS.steamWalker.armor,STATS.steamWalker.hp],[300,500,20,300]);
   assert.equal(STATS.steamWalker.damage,70);assert.equal(STATS.steamWalker.cooldown,1);assert.equal(STATS.steamWalker.speed,1.4);
   assert.equal(STATS.steamWalker.vision,13);assert.equal(STATS.steamWalker.range,STATS.archer.range+3);
@@ -41,12 +41,12 @@ test('机械数值、训练费用与蒸汽步行机炮击符合设计',()=>{
   assert.equal(STATS.archer.audioEvent,undefined);assert.equal(STATS.crossbow.audioEvent,undefined);assert.equal(STATS.armoredCar.audioEvent,undefined);assert.equal(STATS.steamWalker.audioEvent,'cannonFire');
   assert.equal(STATS.armoredCar.trainTime,10);assert.equal(STATS.steamWalker.trainTime,30);
   const g=completeTechnologies(new Game());g.units=[];g.food=g.ore=1000;const factory=g.addBuilding('machineFactory',0,25,32);
-  assert.equal(g.train('armoredCar',factory.id),null);assert.equal(g.train('steamWalker',factory.id),null);assert.equal(g.food,550);assert.equal(g.ore,350);
+  assert.equal(g.train('armoredCar',factory.id),null);assert.equal(g.train('steamWalker',factory.id),null);assert.equal(g.food,500);assert.equal(g.ore,300);
   g.queue=[];g.units=[];const attacker=g.addUnit('steamWalker',0,30,30),target=g.addUnit('armoredCar',1,39,30);target.holdFire=true;
   const nearby=g.addBuilding('mine',1,40.5,30),outside=g.addBuilding('mine',1,42,30),friendly=g.addBuilding('mine',0,39,31.5);
   const hp=target.hp,nearbyHp=nearby.hp,outsideHp=outside.hp,friendlyHp=friendly.hp;g.updateVision();g.step(.05);
   assert.equal(g.projectiles.length,1);assert.equal(g.projectiles[0].kind,'cannonball');assert.deepEqual(g.consumeAudioEvents(),['cannonFire']);assert.equal(target.hp,hp);
-  advance(g,.5);assert.equal(target.hp,hp-66);assert.equal(nearby.hp,nearbyHp-15);assert.equal(outside.hp,outsideHp);assert.equal(friendly.hp,friendlyHp);
+  advance(g,.5);assert.equal(target.hp,hp-70);assert.equal(nearby.hp,nearbyHp-15);assert.equal(outside.hp,outsideHp);assert.equal(friendly.hp,friendlyHp);
   assert.ok(g.effects.some(e=>e.kind==='explosion'&&e.radius===2));assert.ok(attacker.revealUntil>g.time-.6);
   const silent=new Game();silent.units=[];const car=silent.addUnit('armoredCar',0,30,30),enemy=silent.addUnit('shield',1,36,30);enemy.holdFire=true;silent.updateVision();silent.step(.05);
   assert.equal(silent.projectiles.length,1);assert.deepEqual(silent.consumeAudioEvents(),[]);assert.ok(car.revealUntil>silent.time);

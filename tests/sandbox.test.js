@@ -20,7 +20,7 @@ test('沙盒地图两座对称山体、中央通道无森林，编辑暂停模�
 test('放置按左右归属，拒绝越界、山地与重叠，双方删除及人口统计',()=>{
   const g=new Game('sandbox');const a=placeSandboxUnit(g,'steamWalker',{x:20,y:32});
   const b=placeSandboxUnit(g,'archer',{x:76,y:32});assert.equal(a.team,0);assert.equal(b.team,1);
-  assert.equal(usedPop(g.units,0),5);assert.equal(usedPop(g.units,1),1);
+  assert.equal(usedPop(g.units,0),7);assert.equal(usedPop(g.units,1),1);
   assert.equal(placeSandboxUnit(g,'shield',{x:-1,y:5}),null);
   assert.equal(placeSandboxUnit(g,'shield',{x:48,y:10}),null);
   assert.equal(placeSandboxUnit(g,'shield',a),null);
