@@ -23,5 +23,5 @@ test('防守界面与提前出动：准备、交战、休整倒计时、第二�
 });
 test('结束与其他关卡不可提前出动',()=>{
   const g=new Game('defend');g.result='defeat';assert.equal(startNextDefenseWave(g),false);
-  const demo=new Game('demo');assert.deepEqual(defensePresentation(demo),{text:'',canLaunch:false});assert.equal(startNextDefenseWave(demo),false);
+  const tutorial=new Game('tutorial');assert.deepEqual(defensePresentation(tutorial),{text:'',canLaunch:false});assert.equal(startNextDefenseWave(tutorial),false);
 });

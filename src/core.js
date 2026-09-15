@@ -12,14 +12,14 @@ import {findPath,nearestFree,walkable,buildingCells,spawnPoint,createWalkability
 import {DefendAI,AssaultAI,BalancedAI} from './ai.js';
 export const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 export class Game{
-  constructor(level='demo',{seed}={}){
+  constructor(level='tutorial',{seed}={}){
     this.level=level;this.defense=null;this.sandboxEditing=false;this.sandboxSetup=[];
     this.vision=new VisionSystem();
     this.map=createLevelMap(level,seed);
     this.units=[];this.buildings=[];this.projectiles=[];this.effects=[];this.audioEvents=[];this.buildPlans=[];this.notifications=[];this.time=0;this.nextId=1;
-    const playerStart=['attack','randomAttack','defend','demo'].includes(level)?5000:1000,aiStart=['attack','randomAttack','defend'].includes(level)?2000:1000;
+    const playerStart=['attack','randomAttack','defend','tutorial'].includes(level)?5000:1000,aiStart=['attack','randomAttack','defend'].includes(level)?2000:1000;
     this.food=playerStart;this.ore=playerStart;this.queue=[];this.aiFood=aiStart;this.aiOre=aiStart;this.aiQueue=[];
-    this.technologies=Object.fromEntries(Object.keys(TECHNOLOGIES).map(id=>[id,{status:level==='demo'?'complete':'locked',remaining:0}]));
+    this.technologies=Object.fromEntries(Object.keys(TECHNOLOGIES).map(id=>[id,{status:'locked',remaining:0}]));
     this.result=null;this.visionTimer=0;this.revision=0;this.visionVersion=0;
     this.visible=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];this.explored=[new Array(this.map.width*this.map.height).fill(0),new Array(this.map.width*this.map.height).fill(0)];
     this.ghosts=[{buildings:new Map(),units:new Map()},{buildings:new Map(),units:new Map()}];

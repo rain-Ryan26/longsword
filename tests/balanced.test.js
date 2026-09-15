@@ -26,7 +26,7 @@ test('均衡地图：四片山脉、九组资源、对角出生与独立地图�
     for(const p of [...resources,...foodPoints])assert.ok(findPath(g.map,g.buildings,units[0],p,true).length>0);
   }
   assert.equal(g.aiFood,500);assert.equal(g.aiOre,500);assert.equal(g.food,1000);assert.equal(g.ore,1000);
-  const demo=new Game();assert.equal(demo.map.width,96);
+  const tutorial=new Game();assert.equal(tutorial.map.width,96);
   const path=findPath(g.map,g.buildings,{x:100,y:80},{x:124,y:84});assert.ok(path.length>0);
   assert.ok(path.at(-1).x>120); // 创建普通关卡不会改变已有大地图的寻路宽度。
 });

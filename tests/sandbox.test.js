@@ -6,7 +6,7 @@ import {usedPop} from '../src/data.js';
 import {placeSandboxUnit,deleteSandboxUnits,startSandboxBattle,restoreSandboxSetup,mirrorSandboxFormation} from '../src/sandbox.js';
 
 test('沙盒切换到其他关卡后不会保留编辑暂停状态',()=>{
-  const g=new Game('sandbox');Object.assign(g,new Game('demo'));g.step(.05);
+  const g=new Game('sandbox');Object.assign(g,new Game('tutorial'));g.step(.05);
   assert.equal(g.sandboxEditing,false);assert.equal(g.time,.05);
 });
 
@@ -61,7 +61,7 @@ test('编辑输入可框选双方并 D 删除，Shift 移动转交放置，开�
     renderer:{world:(x,y)=>({x,y}),screen:(x,y)=>({x,y}),width:100,height:100},
     interaction,$,toast:noop,closeBuild:()=>interaction.enter('select'),setAttack:noop,renderMode:noop,
     updateHud:noop,sendSnapshot:noop,previewAt:noop,enterRallyMode:noop,togglePause:noop,
-    settingsPanel:$('settings'),setSettings:noop,controlGroups:new ControlGroups()};
+    settingsPanel:$('settings'),setSettings:noop,controlGroups:new ControlGroups(),helpPanel:$('help-panel'),setHelp:noop,signal:noop};
   const event=(x,y,extra={})=>({button:0,clientX:x,clientY:y,pointerId:1,preventDefault:noop,...extra});
   const box=()=>{handlers.get('game:pointerdown')(event(10,20));handlers.get('game:pointermove')(event(85,40));handlers.get('game:pointerup')(event(85,40));};
   try{

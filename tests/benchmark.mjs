@@ -5,7 +5,7 @@ import {Game} from '../src/core.js';
 
 // npm run benchmark -- <改动前源码目录> 可同时比较耗时和最终快照。
 const Before=process.argv[2]?(await import(pathToFileURL(path.resolve(process.argv[2],'src/core.js')).href)).Game:null;
-const scenarios=[['demo',false],['attack',false],['balanced',false],['attack',true]];
+const scenarios=[['tutorial',false],['attack',false],['balanced',false],['attack',true]];
 const median=values=>values.sort((a,b)=>a-b)[Math.floor(values.length/2)];
 function run(Type,level,move,steps=200){
   const originalRandom=Math.random;let seed=20260913;

@@ -4,6 +4,7 @@ import {bindInput} from './input.js';
 import {ControlGroups} from './selection.js';
 import {LEVELS} from './levels.js';
 import {InteractionState} from './interaction.js';
+import {Tutorial} from './tutorial.js';
 import {createHud} from './hud.js';
 import {TRAINABLE_TYPES,BUILDING_TYPES} from './rules.js';
 import {Game} from './core.js';
@@ -15,8 +16,8 @@ const $=id=>document.getElementById(id);
 const params=new URLSearchParams(location.search),observer=params.has('observe');
 const session=params.get('session')||crypto.randomUUID();
 if(!params.has('session')){params.set('session',session);history.replaceState(null,'',`?${params}`);}
-const channel=new BroadcastChannel(`longsword-${session}`),game=observer?null:new Game('demo');
-let level='demo';
+const channel=new BroadcastChannel(`longsword-${session}`),game=observer?null:new Game('tutorial');
+let level='tutorial';
 const host=observer?null:new SnapshotHost(message=>channel.postMessage(message),crypto.randomUUID());
 const receiver=observer?new SnapshotReceiver(crypto.randomUUID()):null;
 let lastHello=-Infinity;
@@ -24,6 +25,7 @@ const controlGroups=new ControlGroups();
 let aiControl=false;
 let lastUnitClick=null,lastRightClick=null;
 const interaction=new InteractionState();
+const tutorial=new Tutorial();
 let state=game?.snapshot(),selected=new Set(),view=observer?1:0,drag=null,marker=null,paused=false,speed=1,last=performance.now(),acc=0,lastSnapshot=0,lastReceived=0,lastHud=0,toastTimer,missionIntroTimer,headerTimer;
 const renderer=new Renderer($('game'),$('minimap'));renderer.resize();if(observer)renderer.camera={x:W/2,y:H/2,zoom:Math.max(5,Math.min(renderer.width/W,renderer.height/H)*.88)};$('perspective').value=view;
 const audio=new AudioManager(),settingsPanel=$('settings-panel');
@@ -33,6 +35,20 @@ $('settings').onclick=()=>setSettings(true);$('settings-close').onclick=()=>setS
 for(const id of ['master-volume','effects-volume'])$(id).addEventListener('input',()=>{audio.save({[id==='master-volume'?'master':'effects']:Number($(id).value)});syncAudioSettings();});
 $('sound-muted').addEventListener('change',()=>{audio.save({muted:$('sound-muted').checked});syncAudioSettings();});
 $('test-cannon-sound').onclick=()=>{audio.unlock();audio.play('cannonFire');};syncAudioSettings();
+// 操作速查：打开时自动暂停，关闭后恢复打开前的暂停状态。
+const helpPanel=$('help-panel');
+let pausedBeforeHelp=null;
+function setHelp(open){
+  if(observer){helpPanel.hidden=!open;return;}
+  if(open){pausedBeforeHelp=paused;if(!paused){paused=true;acc=0;last=performance.now();}}
+  else if(pausedBeforeHelp===false){paused=false;acc=0;last=performance.now();}
+  if(!open)pausedBeforeHelp=null;
+  helpPanel.hidden=!open;sendSnapshot();updateHud();
+}
+$('tutorial-help').onclick=()=>setHelp(true);
+$('tutorial-skip').onclick=()=>{tutorial.skip();updateHud();};
+$('help-close').onclick=()=>setHelp(false);
+helpPanel.addEventListener('pointerdown',event=>{if(event.target===helpPanel)setHelp(false);});
 for(const type of BUILDING_TYPES)$(`build-${type}`).textContent=`${STATS[type].name} [${{base:'C',mine:'R',tower:'Q',factory:'F',machineFactory:'M'}[type]}] · ${STATS[type].ore} 矿 / ${STATS[type].food} 食物`;
 function toast(msg){$('toast').textContent=msg;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),2600);}
 let sandboxType=null,sandboxLast=null;
@@ -69,7 +85,9 @@ for(const type of BUILDING_TYPES)$('build-'+type).onclick=()=>{
 };
 $('demolish').onclick=()=>{if(observer)return;const error=game.demolish(interaction.selectedBuilding);toast(error||'建筑已拆除，不退还资源');if(!error)closeBuild();sendSnapshot();updateHud();};
 function syncView(){lastRightClick=null;view=Number($('perspective').value);$('view-name').textContent=['玩家视角','全局视角','BOT 视角'][view];}
-$('perspective').addEventListener('input',syncView);syncView();
+$('perspective').addEventListener('input',syncView);
+$('perspective').addEventListener('input',()=>tutorial.signal('view'));
+syncView();
 function selectingLevel(){return !observer&&!$('level-select').hidden;}
 function sendSnapshot(){if(game)host.publish(game.snapshot(),paused||selectingLevel(),speed,performance.now());}
 channel.onmessage=event=>{
@@ -82,9 +100,9 @@ channel.onmessage=event=>{
 };
 window.addEventListener('pagehide',()=>{if(receiver)channel.postMessage(receiver.message('bye'));});
 if(observer){document.title='longsword · 独立观察';$('connection').hidden=false;for(const id of ['pause','speed','restart','again'])$(id).disabled=true;$('level-select').hidden=true;channel.postMessage(receiver.message());setAttack(false);}
-function togglePause(){if(observer||selectingLevel())return;paused=!paused;acc=0;last=performance.now();sendSnapshot();updateHud();}
+function togglePause(){if(observer||selectingLevel())return;paused=!paused;tutorial.signal('pause');acc=0;last=performance.now();sendSnapshot();updateHud();}
 $('pause').onclick=togglePause;
-$('speed').onclick=()=>{if(observer||selectingLevel())return;speed=speed===1?2:speed===2?4:1;sendSnapshot();updateHud();};
+$('speed').onclick=()=>{if(observer||selectingLevel())return;speed=speed===1?2:speed===2?4:1;tutorial.signal('speed');sendSnapshot();updateHud();};
 $('ai-control').onclick=()=>{
   if(observer)return;
   aiControl=!aiControl;
@@ -118,19 +136,19 @@ function compactHeader(){
   });
 }
 function applyLevel(){if(level==='sandbox'){for(const button of $('sandbox-units').children)button.classList.remove('active');view=1;$('perspective').value=1;syncView();}resetHeader();headerTimer=setTimeout(compactHeader,3000);const info=LEVELS[level],intro=$('mission-intro');$('mission-title').textContent=info.title;$('mission-desc').textContent=info.desc;clearTimeout(missionIntroTimer);intro.classList.remove('hidden');missionIntroTimer=setTimeout(()=>intro.classList.add('hidden'),3000);$('ai-control').hidden=observer||level!=='balanced';}
-function restart(){if(observer||selectingLevel())return;Object.assign(game,new Game(level));sandboxType=null;sandboxLast=null;closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;aiControl=false;$('ai-control').classList.remove('active');$('ai-control').textContent='AI 控制';game.setPlayerAIControl(false);paused=false;speed=1;acc=0;last=performance.now();state=game.snapshot();renderer.camera=level==='sandbox'?{x:48,y:32,zoom:Math.max(5,Math.min(renderer.width/96,renderer.height/64)*.9)}:['balanced','attack','randomAttack'].includes(level)?{x:24,y:66,zoom:13}:{x:25,y:32,zoom:13};setAttack(false);applyLevel();sendSnapshot();updateHud();toast('新行动开始');}
+function restart(){if(observer||selectingLevel())return;Object.assign(game,new Game(level));tutorial.reset();helpPanel.hidden=true;pausedBeforeHelp=null;sandboxType=null;sandboxLast=null;closeBuild();selected.clear();controlGroups.clear();lastUnitClick=null;lastRightClick=null;aiControl=false;$('ai-control').classList.remove('active');$('ai-control').textContent='AI 控制';game.setPlayerAIControl(false);paused=false;speed=1;acc=0;last=performance.now();state=game.snapshot();renderer.camera=level==='sandbox'?{x:48,y:32,zoom:Math.max(5,Math.min(renderer.width/96,renderer.height/64)*.9)}:['balanced','attack','randomAttack'].includes(level)?{x:24,y:66,zoom:13}:{x:25,y:32,zoom:13};setAttack(false);applyLevel();sendSnapshot();updateHud();toast('新行动开始');}
 $('restart').onclick=restart;$('again').onclick=restart;
 $('choose-level').onclick=()=>{if(observer)return;$('level-select').hidden=false;resetHeader();acc=0;last=performance.now();closeBuild();drag=null;clearTimeout(missionIntroTimer);clearTimeout(toastTimer);$('toast').classList.remove('visible');sendSnapshot();updateHud();};
 for(const card of document.querySelectorAll('.level-card'))card.onclick=()=>{
   if(observer)return;level=card.dataset.level;$('level-select').hidden=true;restart();toast(LEVELS[level].toast);
 };
-function stop(){if(observer)return;closeBuild();game.command([...selected],'stop');setAttack(false);toast(selected.size?'已停火':'请先选择部队');}
+function stop(){if(observer)return;closeBuild();game.command([...selected],'stop');setAttack(false);if(selected.size)tutorial.signal('stop');toast(selected.size?'已停火':'请先选择部队');}
 for(const type of TRAINABLE_TYPES)$('base-train-'+type).onclick=()=>{
   if(observer)return;
-  const produced=game.productionType(type),error=game.train(type,interaction.selectedBuilding);toast(error||`${STATS[produced].name}已加入所选基地训练队列`);updateHud();
+  const produced=game.productionType(type),error=game.train(type,interaction.selectedBuilding);if(!error)tutorial.signal('train');toast(error||`${STATS[produced].name}已加入所选基地训练队列`);updateHud();
 };
 for(const id of Object.keys(TECHNOLOGIES))$('research-'+id).onclick=()=>{
-  if(observer)return;const error=game.research(id);toast(error||`${TECHNOLOGIES[id].name}已开始研发`);sendSnapshot();updateHud();
+  if(observer)return;const error=game.research(id);if(!error)tutorial.signal('research');toast(error||`${TECHNOLOGIES[id].name}已开始研发`);sendSnapshot();updateHud();
 };
 $('base-queue').addEventListener('click',event=>{
   const button=event.target.closest('.queue-unit');if(!button||observer)return;
@@ -145,7 +163,8 @@ bindInput({
   sandboxMove(p,shift){if(!shift||!sandboxType){sandboxLast=null;return;}const world=renderer.world(p.x,p.y);if(!sandboxLast){sandboxPlace(p);sandboxLast=world;return;}const distance=Math.hypot(world.x-sandboxLast.x,world.y-sandboxLast.y),count=Math.floor(distance/SANDBOX_SPACING);const origin=sandboxLast;for(let i=1;i<=count;i++){const point={x:origin.x+(world.x-origin.x)*i*SANDBOX_SPACING/distance,y:origin.y+(world.y-origin.y)*i*SANDBOX_SPACING/distance};placeSandboxUnit(game,sandboxType,point);sandboxLast=point;}if(count){sendSnapshot();updateHud();}},
   sandboxDelete(){deleteSandboxUnits(game,selected);selected.clear();sendSnapshot();updateHud();},
   sandboxCancel(){selectSandboxType(null);},
-  sendSnapshot,previewAt,enterRallyMode,togglePause,settingsPanel,setSettings,controlGroups,
+  sendSnapshot,previewAt,enterRallyMode,togglePause,settingsPanel,setSettings,controlGroups,helpPanel,setHelp,
+  signal:action=>tutorial.signal(action),
   get selectingLevel(){return selectingLevel();},
   get view(){return view;},
   get state(){return state;},set state(value){state=value;},
@@ -165,6 +184,16 @@ function updateHud(){
   if((interaction.selectedBuilding&&!building)||(interaction.buildMenu&&!selected.size)||
     (state.result&&interaction.mode!=='select'))closeBuild();
   hud.update({state,selected,view,paused,speed,level,interaction});
+  const showTutorial=!observer&&level==='tutorial'&&!selectingLevel();
+  $('tutorial-panel').hidden=!showTutorial;
+  if(showTutorial){
+    tutorial.update({state,paused,speed,view,interaction,selected});
+    const info=tutorial.presentation();
+    $('tutorial-progress').textContent=`教程 · ${info.progress}`;
+    $('tutorial-text').textContent=info.text;
+    $('tutorial-skip').disabled=tutorial.finished;
+    $('tutorial-skip').textContent=tutorial.finished?'教程已完成':'跳过这一步';
+  }
   for(const id of ['pause','speed','restart'])$(id).disabled=observer||selectingLevel();
   if(selectingLevel())$('launch-attack').hidden=true;
 }

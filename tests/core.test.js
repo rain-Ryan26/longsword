@@ -1,4 +1,4 @@
-import {productionGame} from './fixtures.js';
+import {productionGame,completeTechnologies} from './fixtures.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game,distance,TRAIN_QUEUE_LIMIT} from '../src/core.js';
@@ -20,8 +20,8 @@ test('铁甲兵和强弩兵继承基础兵种数值并应用强化与矿产加�
   assert.deepEqual({...STATS.crossbow,name:null,damage:null,ore:null,food:null},{...STATS.archer,name:null,damage:null,ore:null,food:null});
   assert.equal(STATS.crossbow.damage,STATS.archer.damage+7);assert.equal(STATS.crossbow.ore,STATS.archer.ore+10);
 });
-test('演示关卡通过基础训练项产出铁盾兵和强弩兵，并仍按基础费用扣除',()=>{
-  const g=new Game();g.units=[];g.food=g.ore=1000;
+test('科技完成后基础训练项产出铁盾兵和强弩兵，并仍按基础费用扣除',()=>{
+  const g=completeTechnologies(new Game());g.units=[];g.food=g.ore=1000;
   assert.match(g.train('ironShield'),/不能训练/);assert.match(g.train('crossbow'),/不能训练/);
   assert.equal(g.train('shield'),null);assert.equal(g.train('archer'),null);
   assert.equal(g.food,890);assert.equal(g.ore,980);advance(g,10.1);
@@ -40,7 +40,7 @@ test('机械数值、训练费用与蒸汽步行机炮击符合设计',()=>{
   assert.equal(STATS.steamWalker.splashDamage,20);assert.equal(STATS.steamWalker.splashRadius,2);assert.equal(STATS.steamWalker.projectileKind,'cannonball');
   assert.equal(STATS.archer.audioEvent,undefined);assert.equal(STATS.crossbow.audioEvent,undefined);assert.equal(STATS.armoredCar.audioEvent,undefined);assert.equal(STATS.steamWalker.audioEvent,'cannonFire');
   assert.equal(STATS.armoredCar.trainTime,10);assert.equal(STATS.steamWalker.trainTime,30);
-  const g=new Game();g.units=[];g.food=g.ore=1000;const factory=g.addBuilding('machineFactory',0,25,32);
+  const g=completeTechnologies(new Game());g.units=[];g.food=g.ore=1000;const factory=g.addBuilding('machineFactory',0,25,32);
   assert.equal(g.train('armoredCar',factory.id),null);assert.equal(g.train('steamWalker',factory.id),null);assert.equal(g.food,550);assert.equal(g.ore,350);
   g.queue=[];g.units=[];const attacker=g.addUnit('steamWalker',0,30,30),target=g.addUnit('armoredCar',1,39,30);target.holdFire=true;
   const nearby=g.addBuilding('mine',1,40.5,30),outside=g.addBuilding('mine',1,42,30),friendly=g.addBuilding('mine',0,39,31.5);
@@ -60,8 +60,8 @@ test('机械采用更大的碰撞半径，蒸汽步行机大于铁甲车',()=>{
   assert.ok(distance(car,walker)>=STATS.armoredCar.collisionRadius+STATS.steamWalker.collisionRadius-.01);
 });
 test('科技按关卡初始化，机械与部队科技可并行研发并按各自时间完成',()=>{
-  const demo=new Game('demo');
-  assert.ok(Object.values(demo.technologies).every(tech=>tech.status==='complete'));
+  const tutorial=new Game('tutorial');
+  assert.ok(Object.values(tutorial.technologies).every(tech=>tech.status==='locked'));
   for(const level of ['balanced','attack','defend'])assert.ok(Object.values(new Game(level).technologies).every(tech=>tech.status==='locked'));
   const g=new Game('balanced');g.ai=null;g.food=g.ore=5000;
   for(const id of Object.keys(TECHNOLOGIES))assert.equal(g.research(id),null);
@@ -95,7 +95,7 @@ test('机械单位只在机械工厂生产，并受科技、独立队列和集�
   assert.equal(locked.train('armoredCar',lockedFactory.id),null);
   assert.match(locked.train('steamWalker',lockedFactory.id),/火炮和蒸汽核心/);
 
-  const g=new Game('demo');g.units=[];g.food=g.ore=5000;
+  const g=completeTechnologies(new Game());g.units=[];g.food=g.ore=5000;
   const factory=g.addBuilding('machineFactory',0,25,32),before=new Set(g.units.map(u=>u.id));
   assert.equal(g.setRallyPoint(factory.id,{x:38,y:32}),null);
   assert.equal(g.train('armoredCar',factory.id),null);assert.equal(g.train('steamWalker',factory.id),null);
@@ -725,19 +725,19 @@ test('进攻关卡初始基地被毁判负',()=>{
   g.step(.05);assert.equal(g.result,'defeat');
 });
 
-test('进攻与防守关卡的玩家初始食物和矿产均为 5000',()=>{
+test('教程、进攻与防守关卡的玩家初始食物和矿产均为 5000',()=>{
   for(const level of ['attack','defend']){
     const g=new Game(level);assert.equal(g.food,5000);assert.equal(g.ore,5000);
   }
-  const demo=new Game('demo'),balanced=new Game('balanced');
-  assert.equal(demo.food,5000);assert.equal(demo.ore,5000);assert.equal(balanced.food,1000);assert.equal(balanced.ore,1000);
+  const tutorial=new Game('tutorial'),balanced=new Game('balanced');
+  assert.equal(tutorial.food,5000);assert.equal(tutorial.ore,5000);assert.equal(balanced.food,1000);assert.equal(balanced.ore,1000);
 });
 
 test('防守重开重置波次，切换关卡清除波次状态',()=>{
   const g=new Game('defend');g.defense.wave=2;g.defense.nextWaveAt=null;
   Object.assign(g,new Game('defend'));
   assert.equal(g.defense.wave,0);assert.equal(g.defense.nextWaveAt,120);
-  Object.assign(g,new Game('demo'));assert.equal(g.snapshot().defense,null);
+  Object.assign(g,new Game('tutorial'));assert.equal(g.snapshot().defense,null);
 });
 
 test('进攻与防守固定 200 人口，双方训练计入排队人数',()=>{

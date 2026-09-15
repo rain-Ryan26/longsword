@@ -9,7 +9,7 @@ export const ATTACK_SETUP={
 };
 export const LEVELS={
   sandbox:{title:'沙盒模式',desc:'左侧蓝方 · 右侧红方，自由布阵并试战。',toast:'右栏选择兵种；Shift 移动连续放置，选择工具框选后 D 删除。'},
-  demo:{title:'夺下双营地',desc:'侦察东部资源点，摧毁两座敌方营地。',toast:'框选蓝色部队，按 A 后点击目的地。'},
+  tutorial:{title:'新兵教程',desc:'跟随左上角的短主线掌握核心操作，最后摧毁两座敌方营地。',toast:'教程已开始：进阶操作可查看“操作速查”，也可随时跳过当前步骤。'},
   balanced:{title:'均衡对抗',desc:'扩张经济、集结部队，摧毁敌方全部建筑。',toast:'双方各 6 盾兵、6 弓箭兵；绿色食物点上的食物厂产量翻倍。'},
   attack:{title:'突破三处据点',desc:'60 盾兵、60 弓箭兵、2 装甲车、2 蒸汽步行机，摧毁敌方全部建筑。',toast:'三路部队从左下出发；敌方三据点驻守 30 / 50 / 70 人，共 9 座哨塔，野狗分路巡逻。'},
   randomAttack:{title:'随机进攻',desc:'在随机山林与资源布局中突破三处敌营，摧毁敌方全部建筑。',toast:'沿用进攻兵力与三据点联防；每次重开生成新的山林、资源和敌营。'},
@@ -39,7 +39,7 @@ export function setupLevel(game){
       }
       return;
     }
-    if(game.level==='demo'){
+    if(game.level==='tutorial'){
       game.addBuilding('base',0,12,32).primary=true;
       game.addBuilding('machineFactory',0,6,32);
       game.map.camps.forEach((p,i)=>{game.addBuilding('base',1,p.x,p.y);for(let n=0;n<30;n++){const u=game.addUnit(n<17?'shield':'archer',1,p.x-6+(n%3)*2,p.y-4+Math.floor(n/3)*3);u.home={x:u.x,y:u.y};u.role='guard';u.camp=i;}});

@@ -203,14 +203,15 @@ test('提取后的输入处理覆盖选择、编队、取消、暂停及观察�
   };
   globalThis.window={addEventListener:(name,fn)=>handlers.set(name,fn)};
   const game=productionGame();const unit=game.addUnit('shield',0,20,20);
-  const interaction=new InteractionState();let pauses=0;
+  const interaction=new InteractionState();let pauses=0;const signals=[];
   const noop=()=>{};
   const ctx={game,observer:false,view:0,state:game.snapshot(),selected:new Set(),drag:null,
     renderer:{world:(x,y)=>({x,y}),screen:(x,y)=>({x,y}),width:100,height:100},
     interaction,$:element,toast:noop,closeBuild:()=>interaction.enter('select'),
     setAttack:on=>interaction.enter(on?'attack':'select'),renderMode:noop,updateHud:noop,
     sendSnapshot:noop,previewAt:noop,enterRallyMode:noop,togglePause:()=>{if(!ctx.observer)pauses++;},
-    settingsPanel:element('settings'),setSettings:noop,controlGroups:new ControlGroups()};
+    settingsPanel:element('settings'),setSettings:noop,controlGroups:new ControlGroups(),
+    helpPanel:element('help-panel'),setHelp:noop,signal:action=>signals.push(action)};
   const key=(value,extra={})=>handlers.get('keydown')({key:value,target:{matches:()=>false},preventDefault:noop,...extra});
   try{
     bindInput(ctx);
@@ -220,7 +221,7 @@ test('提取后的输入处理覆盖选择、编队、取消、暂停及观察�
     ctx.selectingLevel=false;
     handlers.get('game:pointerdown')({button:0,clientX:20,clientY:20,pointerId:1});
     handlers.get('game:pointerup')({pointerId:1});
-    assert.ok(ctx.selected.has(unit.id));
+    assert.ok(ctx.selected.has(unit.id));assert.ok(signals.includes('pick'));
     key('1',{ctrlKey:true});ctx.selected.clear();key('1');assert.ok(ctx.selected.has(unit.id));
     key('a');assert.equal(interaction.attackMode,true);
     key('Escape');assert.equal(interaction.mode,'select');assert.equal(ctx.drag,null);
@@ -231,7 +232,7 @@ test('提取后的输入处理覆盖选择、编队、取消、暂停及观察�
     interaction.enter('place',{type:'tower'});
     const click=()=>handlers.get('game:pointerdown')({button:0,clientX:30,clientY:26,pointerId:1});
     const savedOre=game.ore;game.ore=0;click();assert.equal(ctx.selected.size,5);
-    game.ore=savedOre;click();
+    game.ore=savedOre;click();assert.ok(signals.includes('build-tower'));
     const site=game.buildings.find(b=>b.type==='tower'&&b.constructionPending);
     const workers=troops.filter(u=>u.buildingId===site.id);
     assert.equal(workers.length,2);assert.equal(ctx.selected.size,3);
