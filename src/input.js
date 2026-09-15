@@ -1,4 +1,4 @@
-import {STATS,isSlowTerrain} from './data.js';
+import {STATS} from './data.js';
 import {isOffensiveMovableUnit,nearestEntity} from './selection.js';
 
 export function bindInput(ctx){
@@ -49,14 +49,13 @@ export function bindInput(ctx){
     }
     const world=renderer.world(p.x,p.y),now=performance.now();
     const inMap=world.x>=0&&world.x<ctx.state.map.width&&world.y>=0&&world.y<ctx.state.map.height;
-    const slowTerrain=inMap&&isSlowTerrain(ctx.state.map.terrain[Math.floor(world.y)*ctx.state.map.width+Math.floor(world.x)]);
     const doubleClick=!e.shiftKey&&ctx.selected.size>0&&ctx.lastRightClick&&now-ctx.lastRightClick.time<350&&Math.hypot(p.x-ctx.lastRightClick.x,p.y-ctx.lastRightClick.y)<6;
     const flyingBefore=game.units.filter(u=>ctx.selected.has(u.id)&&game.isFlying(u)).map(u=>u.id);
     if(doubleClick&&inMap){
       const previousFlying=new Set(ctx.lastRightClick.flyingIds);
       game.toggleFlight(flyingBefore.filter(id=>previousFlying.has(id)),world);
     }
-    issue(p,false,e.shiftKey,!!doubleClick&&slowTerrain,!!doubleClick);
+    issue(p,false,e.shiftKey,!!doubleClick,!!doubleClick);
     ctx.lastRightClick=!e.shiftKey&&inMap&&!doubleClick?{x:p.x,y:p.y,time:now,flyingIds:flyingBefore}:null;
   }
   function onPrimaryClick(e,p){
