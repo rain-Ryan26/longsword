@@ -23,7 +23,8 @@ export function bindInput(ctx){
     game.command(ids,attack?'attack':target?'attack':'move',world,target?.id,append,allowMountains);
     signal(attack?'attackMove':target?'attackTarget':append?'path':'move');
     if(allowMountains)toast('本次路线允许穿越山地/森林');else if(append)toast('已追加移动路径点');
-    ctx.marker={...world,attack:attack||!!target,until:performance.now()+1000};setAttack(false);
+    const markerStartedAt=performance.now(),markerDuration=760;
+    ctx.marker={...world,attack:attack||!!target,startedAt:markerStartedAt,duration:markerDuration,until:markerStartedAt+markerDuration};setAttack(false);
   }
   const canvas=$('game');
   canvas.addEventListener('contextmenu',e=>e.preventDefault());

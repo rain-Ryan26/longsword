@@ -2,6 +2,12 @@ import {STATS} from './data.js';
 import {towerGarrisonType} from './rules.js';
 import {buildingCells,coversCell} from './pathfinding.js';
 const TEAM=['#85d7e3','#e59678'];
+export function commandMarkerFrame(marker,now){
+  const duration=Math.max(1,marker.duration||1000),startedAt=Number.isFinite(marker.startedAt)?marker.startedAt:marker.until-duration;
+  const progress=Math.max(0,Math.min(1,(now-startedAt)/duration));
+  const eased=1-(1-progress)**3,scale=1-eased;
+  return {progress,radius:1.55*scale,arm:.42*scale,alpha:progress<.82?1:(1-progress)/.18};
+}
 export class Renderer{
   constructor(canvas,minimap){this.canvas=canvas;this.ctx=canvas.getContext('2d');this.minimap=minimap;this.mc=minimap.getContext('2d');this.camera={x:25,y:32,zoom:13};this.width=1;this.height=1;this.terrainCanvas=null;this.lastMap=null;this.sizeDirty=true;
     this.resizeObserver=new ResizeObserver(()=>{this.sizeDirty=true;});this.resizeObserver.observe(canvas);
@@ -155,7 +161,13 @@ export class Renderer{
       const p=buildPreview,r=p.halfSize||2;c.fillStyle=p.error?'#e66d6355':'#b8e67a55';c.strokeStyle=p.error?'#f09080':'#dcff9e';c.lineWidth=.15;c.fillRect(p.x-r,p.y-r,r*2,r*2);c.strokeRect(p.x-r,p.y-r,r*2,r*2);
       c.fillStyle='#fff1d2';c.textAlign='center';c.font=`${Math.max(.8,12/z)}px "Microsoft YaHei"`;c.fillText(p.error||(p.evict?'单位将自动让位':'左键建造'),p.x,p.y+3);
     }
-    if(marker&&marker.until>performance.now()){c.strokeStyle=marker.attack?'#f3b38a':'#d8e9a3';c.lineWidth=.12;const r=.7+(marker.until-performance.now())/1800;c.beginPath();c.arc(marker.x,marker.y,r,0,Math.PI*2);c.moveTo(marker.x-r-0.3,marker.y);c.lineTo(marker.x+r+.3,marker.y);c.moveTo(marker.x,marker.y-r-.3);c.lineTo(marker.x,marker.y+r+.3);c.stroke();}
+    if(marker&&marker.until>now){
+      const frame=commandMarkerFrame(marker,now),color=marker.attack?'#f3b38a':'#d8e9a3';
+      c.save();c.translate(marker.x,marker.y);c.rotate(frame.progress*.6);c.globalAlpha=frame.alpha;c.strokeStyle=color;c.fillStyle=color;c.lineWidth=.12;
+      c.setLineDash([.42,.24]);c.lineDashOffset=-frame.progress*1.8;c.beginPath();c.arc(0,0,frame.radius,0,Math.PI*2);c.stroke();c.setLineDash([]);
+      c.beginPath();for(let i=0;i<4;i++){const angle=i*Math.PI/2-frame.progress*.6,cos=Math.cos(angle),sin=Math.sin(angle),outer=frame.radius+frame.arm,inner=Math.max(0,frame.radius-frame.arm*.75);c.moveTo(cos*outer,sin*outer);c.lineTo(cos*inner,sin*inner);}c.stroke();
+      c.beginPath();c.arc(0,0,.07+.07*Math.sin(frame.progress*Math.PI),0,Math.PI*2);c.fill();c.restore();
+    }
     c.strokeStyle='#8c9b5e88';c.lineWidth=.12;c.strokeRect(0,0,W,H);c.restore();
     if(drag&&drag.kind==='select'){c.fillStyle='#c2dc8920';c.strokeStyle='#d6e4a5';c.lineWidth=1;c.fillRect(drag.sx,drag.sy,drag.x-drag.sx,drag.y-drag.sy);c.strokeRect(drag.sx,drag.sy,drag.x-drag.sx,drag.y-drag.sy);}
     this.drawMini(state,view);

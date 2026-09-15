@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Game} from '../src/core.js';
-import {Renderer} from '../src/renderer.js';
+import {Renderer,commandMarkerFrame} from '../src/renderer.js';
 import {SnapshotHost,SnapshotReceiver} from '../src/sync.js';
 
 function fixture(){
@@ -63,6 +63,14 @@ test('尺寸与像素比变化更新画布，标记到期清除且暂停可选�
   f.selected.add(f.game.units[0].id);assert.equal(f.draw(),true);
   const marker={x:20,y:30,until:performance.now()+10000};assert.equal(f.draw(0,marker),true);assert.equal(f.draw(0,marker),true);
   marker.until=0;assert.equal(f.draw(0,marker),true);assert.equal(f.draw(0,marker),false);
+});
+
+test('指令标记连续收拢到中心后淡出',()=>{
+  const marker={until:1760,startedAt:1000,duration:760};
+  const start=commandMarkerFrame(marker,1000),middle=commandMarkerFrame(marker,1380),end=commandMarkerFrame(marker,1760);
+  assert.equal(start.radius,1.55);assert.equal(start.alpha,1);
+  assert.ok(middle.radius>0&&middle.radius<start.radius);assert.equal(middle.alpha,1);
+  assert.equal(end.radius,0);assert.equal(end.arm,0);assert.equal(end.alpha,0);
 });
 
 test('裁剪屏幕外单位仍保留经过画面的选中路径',()=>{
