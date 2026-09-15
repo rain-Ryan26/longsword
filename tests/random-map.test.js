@@ -18,12 +18,37 @@ test('随机进攻：种子可复现，地形、资源、敌营随种子变化',
   }finally{Math.random=original;}
 });
 
-test('随机进攻：64 个种子的部署、建筑占地和无山林通路有效',()=>{
+test('随机进攻：64 个种子的连续大块山林、部署和无山林通路有效',()=>{
+  let centerTerrain=0,centerCells=0,outerTerrain=0,outerCells=0;
   for(let seed=0;seed<64;seed++){
     const g=new Game('randomAttack',{seed}),m=g.map,label=`seed=${seed}`;
     assert.equal(m.width,128);assert.equal(m.height,88);
     assert.equal(m.resources.length,9);assert.equal(m.foodPoints.length,9);
-    for(const type of [1,2])assert.ok(m.terrain.filter(t=>t===type).length>40,`${label} 缺少地形 ${type}`);
+    for(const [type,ratio] of [[1,.08],[2,.12]]){
+      assert.ok(m.terrain.filter(t=>t===type).length>=m.width*m.height*ratio,`${label} 缺少地形 ${type}`);
+      const seen=new Uint8Array(m.terrain.length);
+      for(let first=0;first<m.terrain.length;first++){
+        if(m.terrain[first]!==type||seen[first])continue;
+        const queue=[first];seen[first]=1;let minX=m.width,maxX=0,minY=m.height,maxY=0;
+        for(let i=0;i<queue.length;i++){
+          const cell=queue[i],x=cell%m.width,y=Math.floor(cell/m.width);
+          minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);
+          for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+            const xx=x+dx,yy=y+dy,next=yy*m.width+xx;
+            if(xx>=0&&xx<m.width&&yy>=0&&yy<m.height&&!seen[next]&&m.terrain[next]===type){seen[next]=1;queue.push(next);}
+          }
+        }
+        const spanX=maxX-minX+1,spanY=maxY-minY+1;
+        assert.ok(queue.length>=24&&spanX>=4&&spanY>=4&&Math.max(spanX,spanY)>=8,`${label} 地形 ${type} 出现碎块`);
+      }
+    }
+    let seedCenterTerrain=0,seedCenterCells=0;
+    for(let y=0;y<m.height;y++)for(let x=0;x<m.width;x++){
+      const central=x>=m.width/4&&x<m.width*3/4&&y>=m.height/4&&y<m.height*3/4;
+      if(central){seedCenterCells++;centerCells++;if(m.terrain[y*m.width+x]){seedCenterTerrain++;centerTerrain++;}}
+      else{outerCells++;if(m.terrain[y*m.width+x])outerTerrain++;}
+    }
+    assert.ok(seedCenterTerrain/seedCenterCells>=.10,`${label} 中央地形过少`);
     const occupied=new Set();
     for(const b of g.buildings){
       const c=buildingCells(b);
@@ -55,6 +80,7 @@ test('随机进攻：64 个种子的部署、建筑占地和无山林通路有�
         assert.ok(seen.has(g.cellIndex(p.x+dx,p.y+dy)),`${label} 资源不可达`);
     }
   }
+  assert.ok(Math.abs(centerTerrain/centerCells-outerTerrain/outerCells)<.03,'中央与外围的平均地形密度失衡');
 });
 
 test('随机进攻：继承兵力、经济、科技、联防及胜负，快照传递随机地图',()=>{

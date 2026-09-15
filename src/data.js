@@ -14,8 +14,8 @@ export const TECHNOLOGIES = {
 export const STATS = {
   shield:{name:'盾兵',hp:70,armor:5,damage:14,cooldown:.85,range:1.5,speed:1.75,vision:9,food:50,ore:10,trainTime:5,movable:true,air:false},
   ironShield:{name:'铁甲兵',hp:75,armor:8,damage:16,cooldown:.85,range:1.5,speed:1.75,vision:9,food:50,ore:20,trainTime:5,movable:true,air:false},
-  archer:{name:'弓箭兵',hp:50,armor:1,damage:15,cooldown:1.2,range:7,speed:1.6,vision:9,food:60,ore:10,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
-  crossbow:{name:'强弩兵',hp:50,armor:1,damage:22,cooldown:1.2,range:7,speed:1.6,vision:9,food:60,ore:20,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
+  archer:{name:'弓箭兵',hp:40,armor:1,damage:15,cooldown:1.2,range:7,speed:1.6,vision:9,food:60,ore:10,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
+  crossbow:{name:'强弩兵',hp:40,armor:1,damage:22,cooldown:1.2,range:7,speed:1.6,vision:9,food:60,ore:20,trainTime:5,movable:true,air:false,antiAir:true,ranged:true},
   armoredCar:{name:'装甲车',hp:200,armor:10,damage:22,cooldown:.4,range:8,speed:2.45,vision:10,food:200,ore:200,trainTime:10,pop:4,movable:true,air:false,ranged:true,machine:true,visualSize:1.2,collisionRadius:.55},
   steamWalker:{name:'蒸汽步行机',hp:300,armor:20,damage:70,cooldown:1,range:10,speed:1.4,vision:13,food:300,ore:500,trainTime:30,pop:7,movable:true,air:false,ranged:true,machine:true,noMountains:true,visualSize:1.35,collisionRadius:.65,projectileKind:'cannonball',splashDamage:20,splashRadius:2,audioEvent:'cannonFire'},
   wilddog:{name:'野狗',hp:55,armor:0,damage:9,cooldown:.5,range:1.5,speed:2.75,vision:10,food:30,ore:0,trainTime:2,movable:true,air:false},

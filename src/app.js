@@ -163,7 +163,7 @@ bindInput({
   sandboxMove(p,shift){if(!shift||!sandboxType){sandboxLast=null;return;}const world=renderer.world(p.x,p.y);if(!sandboxLast){sandboxPlace(p);sandboxLast=world;return;}const distance=Math.hypot(world.x-sandboxLast.x,world.y-sandboxLast.y),count=Math.floor(distance/SANDBOX_SPACING);const origin=sandboxLast;for(let i=1;i<=count;i++){const point={x:origin.x+(world.x-origin.x)*i*SANDBOX_SPACING/distance,y:origin.y+(world.y-origin.y)*i*SANDBOX_SPACING/distance};placeSandboxUnit(game,sandboxType,point);sandboxLast=point;}if(count){sendSnapshot();updateHud();}},
   sandboxDelete(){deleteSandboxUnits(game,selected);selected.clear();sendSnapshot();updateHud();},
   sandboxCancel(){selectSandboxType(null);},
-  sendSnapshot,previewAt,enterRallyMode,togglePause,settingsPanel,setSettings,controlGroups,helpPanel,setHelp,
+  sendSnapshot,previewAt,enterRallyMode,togglePause,settingsPanel,setSettings,controlGroups,helpPanel,setHelp,stop,
   signal:action=>tutorial.signal(action),
   get selectingLevel(){return selectingLevel();},
   get view(){return view;},
